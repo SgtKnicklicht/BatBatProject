@@ -1,62 +1,21 @@
-const STORAGE_KEY = "batbat.reservations.v1";
+const STORAGE_KEY = "batbat.reservations.v2";
+const PROFILE_KEY = "batbat.profile.v1";
 const VIEW_KEY = "batbat.activeView.v1";
+const CHANNEL_COLUMNS = 8;
+const CHANNEL_ROWS = 6;
+const ACTIVE_CHANNELS = 40;
 
 const state = {
   reservations: [],
+  selectedChannels: new Set(),
+  profile: {
+    name: "Team member",
+    color: "#0d8f7a",
+  },
   datasets: [],
   selectedDatasetId: null,
   selectedSheet: null,
   plotMode: "lines",
-};
-
-const sampleReservations = [
-  {
-    id: crypto.randomUUID(),
-    channel: "Neware 1-1",
-    cell: "Cell A",
-    owner: "Team",
-    status: "running",
-    start: "",
-    end: "",
-    notes: "Long-term cycling",
-  },
-  {
-    id: crypto.randomUUID(),
-    channel: "Neware 1-2",
-    cell: "Cell B",
-    owner: "Team",
-    status: "reserved",
-    start: "",
-    end: "",
-    notes: "Formation",
-  },
-  {
-    id: crypto.randomUUID(),
-    channel: "Neware 4-1",
-    cell: "Cell C",
-    owner: "Team",
-    status: "available",
-    start: "",
-    end: "",
-    notes: "Rate scan",
-  },
-  {
-    id: crypto.randomUUID(),
-    channel: "Neware 4-3",
-    cell: "",
-    owner: "",
-    status: "available",
-    start: "",
-    end: "",
-    notes: "Ready",
-  },
-];
-
-const statusMeta = {
-  running: { label: "Running", color: "#20a464" },
-  reserved: { label: "Reserved", color: "#e7b10a" },
-  available: { label: "Available", color: "#0d8f7a" },
-  maintenance: { label: "Maintenance", color: "#f05d48" },
 };
 
 const el = {
@@ -64,21 +23,16 @@ const el = {
   views: document.querySelectorAll(".view"),
   sessionSummary: document.querySelector("#sessionSummary"),
   channelGrid: document.querySelector("#channelGrid"),
-  reservationSearch: document.querySelector("#reservationSearch"),
-  statusFilter: document.querySelector("#statusFilter"),
-  addReservationBtn: document.querySelector("#addReservationBtn"),
   exportReservationsBtn: document.querySelector("#exportReservationsBtn"),
-  dialog: document.querySelector("#reservationDialog"),
-  form: document.querySelector("#reservationForm"),
-  reservationId: document.querySelector("#reservationId"),
-  channelInput: document.querySelector("#channelInput"),
-  cellInput: document.querySelector("#cellInput"),
-  ownerInput: document.querySelector("#ownerInput"),
-  reservationStatusInput: document.querySelector("#reservationStatusInput"),
-  startInput: document.querySelector("#startInput"),
-  endInput: document.querySelector("#endInput"),
-  notesInput: document.querySelector("#notesInput"),
-  deleteReservationBtn: document.querySelector("#deleteReservationBtn"),
+  profileNameInput: document.querySelector("#profileNameInput"),
+  profileColorInput: document.querySelector("#profileColorInput"),
+  saveProfileBtn: document.querySelector("#saveProfileBtn"),
+  selectedChannelsText: document.querySelector("#selectedChannelsText"),
+  batteryNameInput: document.querySelector("#batteryNameInput"),
+  channelDetailsInput: document.querySelector("#channelDetailsInput"),
+  clearSelectionBtn: document.querySelector("#clearSelectionBtn"),
+  releaseChannelsBtn: document.querySelector("#releaseChannelsBtn"),
+  applyDetailsBtn: document.querySelector("#applyDetailsBtn"),
   dropZone: document.querySelector("#dropZone"),
   fileInput: document.querySelector("#fileInput"),
   datasetSelect: document.querySelector("#datasetSelect"),
@@ -109,6 +63,9 @@ const el = {
 
 function boot() {
   state.reservations = loadReservations();
+  state.profile = loadProfile();
+  el.profileNameInput.value = state.profile.name;
+  el.profileColorInput.value = state.profile.color;
   bindNavigation();
   bindReservations();
   bindFiles();
@@ -140,9 +97,9 @@ function switchView(viewId) {
 function loadReservations() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(saved) && saved.length ? saved : sampleReservations;
+    return Array.isArray(saved) ? saved : [];
   } catch {
-    return sampleReservations;
+    return [];
   }
 }
 
@@ -150,120 +107,188 @@ function saveReservations() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.reservations));
 }
 
+function loadProfile() {
+  try {
+    return { ...state.profile, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") };
+  } catch {
+    return state.profile;
+  }
+}
+
+function saveProfile() {
+  state.profile = {
+    name: el.profileNameInput.value.trim() || "Team member",
+    color: el.profileColorInput.value || "#0d8f7a",
+  };
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
+}
+
 function bindReservations() {
-  el.addReservationBtn.addEventListener("click", () => openReservationDialog());
   el.exportReservationsBtn.addEventListener("click", exportReservations);
-  el.reservationSearch.addEventListener("input", renderReservations);
-  el.statusFilter.addEventListener("change", renderReservations);
-
-  el.form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const id = el.reservationId.value || crypto.randomUUID();
-    const payload = {
-      id,
-      channel: el.channelInput.value.trim(),
-      cell: el.cellInput.value.trim(),
-      owner: el.ownerInput.value.trim(),
-      status: el.reservationStatusInput.value,
-      start: el.startInput.value,
-      end: el.endInput.value,
-      notes: el.notesInput.value.trim(),
-    };
-    const index = state.reservations.findIndex((item) => item.id === id);
-    if (index >= 0) {
-      state.reservations[index] = payload;
-    } else {
-      state.reservations.push(payload);
-    }
-    saveReservations();
+  el.saveProfileBtn.addEventListener("click", () => {
+    saveProfile();
     renderReservations();
-    el.dialog.close();
   });
-
-  el.deleteReservationBtn.addEventListener("click", () => {
-    const id = el.reservationId.value;
-    state.reservations = state.reservations.filter((item) => item.id !== id);
-    saveReservations();
+  el.profileNameInput.addEventListener("change", saveProfile);
+  el.profileColorInput.addEventListener("input", saveProfile);
+  el.clearSelectionBtn.addEventListener("click", () => {
+    state.selectedChannels.clear();
+    syncSelectionInputs();
     renderReservations();
-    el.dialog.close();
   });
+  el.releaseChannelsBtn.addEventListener("click", releaseSelectedChannels);
+  el.applyDetailsBtn.addEventListener("click", applySelectedChannelDetails);
 }
 
 function renderReservations() {
-  const query = el.reservationSearch.value.trim().toLowerCase();
-  const status = el.statusFilter.value;
-  const cards = state.reservations
-    .filter((item) => status === "all" || item.status === status)
-    .filter((item) => {
-      const haystack = [item.channel, item.cell, item.owner, item.notes].join(" ").toLowerCase();
-      return !query || haystack.includes(query);
-    })
-    .sort((a, b) => a.channel.localeCompare(b.channel, undefined, { numeric: true }));
-
-  el.channelGrid.innerHTML = cards.map(reservationCard).join("");
-  el.channelGrid.querySelectorAll("[data-edit]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const item = state.reservations.find((entry) => entry.id === button.dataset.edit);
-      openReservationDialog(item);
-    });
+  const reservationsByChannel = new Map(state.reservations.map((item) => [item.channelNumber, item]));
+  const cells = Array.from({ length: CHANNEL_COLUMNS * CHANNEL_ROWS }, (_, index) => {
+    const channelNumber = index + 1;
+    const isActive = channelNumber <= ACTIVE_CHANNELS;
+    const reservation = reservationsByChannel.get(channelNumber);
+    const isSelected = state.selectedChannels.has(channelNumber);
+    return channelSquare(channelNumber, isActive, reservation, isSelected);
   });
+
+  el.channelGrid.innerHTML = cells.join("");
+  el.channelGrid.querySelectorAll(".channel-square[data-active='true']").forEach((button) => {
+    button.addEventListener("click", () => handleChannelClick(Number(button.dataset.channel)));
+  });
+  syncSelectionInputs();
 }
 
-function reservationCard(item) {
-  const meta = statusMeta[item.status] || statusMeta.available;
+function channelSquare(channelNumber, isActive, reservation, isSelected) {
+  const color = reservation?.color || "#ffffff";
+  const owner = reservation?.owner || "";
+  const battery = reservation?.battery || "";
+  const classes = [
+    "channel-square",
+    reservation ? "reserved" : "",
+    isSelected ? "selected" : "",
+    isActive ? "" : "inactive",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return `
-    <article class="channel-card" style="--status-color: ${meta.color}">
-      <div class="channel-top">
-        <div class="channel-title">
-          <strong>${escapeHtml(item.channel)}</strong>
-          <span>${escapeHtml(item.cell || "No sample assigned")}</span>
-        </div>
-        <span class="status-pill">${meta.label}</span>
-      </div>
-      <div class="meta-row">
-        <span>Owner</span>
-        <strong>${escapeHtml(item.owner || "Unassigned")}</strong>
-      </div>
-      <div class="meta-row">
-        <span>Window</span>
-        <strong>${formatWindow(item.start, item.end)}</strong>
-      </div>
-      <div class="meta-row">
-        <span>Notes</span>
-        <strong>${escapeHtml(item.notes || "-")}</strong>
-      </div>
-      <div class="channel-actions">
-        <button class="mini-button" data-edit="${item.id}" title="Edit reservation">Edit</button>
-      </div>
-    </article>
+    <button
+      class="${classes}"
+      data-channel="${channelNumber}"
+      data-active="${isActive}"
+      style="--channel-color: ${escapeHtml(color)}"
+      ${isActive ? "" : "disabled"}
+      title="${isActive ? `Channel ${channelNumber}` : "Spare slot"}"
+    >
+      <span class="channel-number">${isActive ? channelNumber : ""}</span>
+      <strong>${escapeHtml(battery || (reservation ? owner : ""))}</strong>
+      <em>${escapeHtml(battery && owner ? owner : "")}</em>
+    </button>
   `;
 }
 
-function openReservationDialog(item = null) {
-  el.reservationId.value = item?.id || "";
-  el.channelInput.value = item?.channel || "";
-  el.cellInput.value = item?.cell || "";
-  el.ownerInput.value = item?.owner || "";
-  el.reservationStatusInput.value = item?.status || "reserved";
-  el.startInput.value = item?.start || "";
-  el.endInput.value = item?.end || "";
-  el.notesInput.value = item?.notes || "";
-  el.deleteReservationBtn.style.visibility = item ? "visible" : "hidden";
-  el.dialog.showModal();
+function handleChannelClick(channelNumber) {
+  saveProfile();
+  state.selectedChannels.has(channelNumber)
+    ? state.selectedChannels.delete(channelNumber)
+    : state.selectedChannels.add(channelNumber);
+
+  const reservation = findReservation(channelNumber);
+  if (!reservation) {
+    reserveChannels([channelNumber]);
+  } else if (reservation.owner === state.profile.name && reservation.color !== state.profile.color) {
+    reservation.color = state.profile.color;
+    saveReservations();
+  }
+
+  syncSelectionInputs();
+  renderReservations();
+}
+
+function reserveChannels(channelNumbers) {
+  channelNumbers.forEach((channelNumber) => {
+    const existing = findReservation(channelNumber);
+    if (existing) {
+      existing.owner = state.profile.name;
+      existing.color = state.profile.color;
+      return;
+    }
+    state.reservations.push({
+      id: crypto.randomUUID(),
+      channelNumber,
+      owner: state.profile.name,
+      color: state.profile.color,
+      battery: "",
+      notes: "",
+      reservedAt: new Date().toISOString(),
+    });
+  });
+  saveReservations();
+}
+
+function applySelectedChannelDetails() {
+  const selected = [...state.selectedChannels];
+  if (!selected.length) return;
+  saveProfile();
+  reserveChannels(selected);
+  selected.forEach((channelNumber) => {
+    const reservation = findReservation(channelNumber);
+    reservation.battery = el.batteryNameInput.value.trim();
+    reservation.notes = el.channelDetailsInput.value.trim();
+    reservation.owner = state.profile.name;
+    reservation.color = state.profile.color;
+  });
+  saveReservations();
+  renderReservations();
+}
+
+function releaseSelectedChannels() {
+  const selected = new Set(state.selectedChannels);
+  if (!selected.size) return;
+  state.reservations = state.reservations.filter((item) => !selected.has(item.channelNumber));
+  state.selectedChannels.clear();
+  el.batteryNameInput.value = "";
+  el.channelDetailsInput.value = "";
+  saveReservations();
+  renderReservations();
+}
+
+function syncSelectionInputs() {
+  const selected = [...state.selectedChannels].sort((a, b) => a - b);
+  el.selectedChannelsText.textContent = selected.length
+    ? `${selected.length} selected: ${selected.map((channel) => `Ch ${channel}`).join(", ")}`
+    : "No channels selected";
+
+  const selectedReservations = selected.map(findReservation).filter(Boolean);
+  const commonBattery = sharedValue(selectedReservations, "battery");
+  const commonNotes = sharedValue(selectedReservations, "notes");
+  el.batteryNameInput.value = commonBattery || "";
+  el.channelDetailsInput.value = commonNotes || "";
+}
+
+function sharedValue(items, key) {
+  if (!items.length) return "";
+  const first = items[0][key] || "";
+  return items.every((item) => (item[key] || "") === first) ? first : "";
+}
+
+function findReservation(channelNumber) {
+  return state.reservations.find((item) => item.channelNumber === channelNumber);
 }
 
 function exportReservations() {
   const rows = [
-    ["Channel", "Cell", "Owner", "Status", "Start", "End", "Notes"],
-    ...state.reservations.map((item) => [
-      item.channel,
-      item.cell,
-      item.owner,
-      item.status,
-      item.start,
-      item.end,
-      item.notes,
-    ]),
+    ["Channel", "Owner", "Color", "Battery", "Notes", "Reserved At"],
+    ...state.reservations
+      .slice()
+      .sort((a, b) => a.channelNumber - b.channelNumber)
+      .map((item) => [
+        item.channelNumber,
+        item.owner,
+        item.color,
+        item.battery,
+        item.notes,
+        item.reservedAt,
+      ]),
   ];
   downloadText("batbat_channel_reservations.csv", toCsv(rows));
 }

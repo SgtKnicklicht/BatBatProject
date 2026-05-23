@@ -52,38 +52,66 @@
           <header class="view-header">
             <div>
               <p class="eyebrow">Channel board</p>
-              <h1>Reserve battery channels</h1>
+              <h1>Neware channels</h1>
             </div>
             <div class="action-row">
               <button class="ghost-button" id="exportReservationsBtn" title="Export reservations">
                 <span>v</span>
                 Export
               </button>
-              <button class="primary-button" id="addReservationBtn" title="Add reservation">
-                <span>+</span>
-                Reserve
-              </button>
             </div>
           </header>
 
-          <div class="board-toolbar">
-            <label>
-              Search
-              <input id="reservationSearch" type="search" placeholder="Cell, owner, channel" />
-            </label>
-            <label>
-              Status
-              <select id="statusFilter">
-                <option value="all">All</option>
-                <option value="running">Running</option>
-                <option value="reserved">Reserved</option>
-                <option value="available">Available</option>
-                <option value="maintenance">Maintenance</option>
-              </select>
-            </label>
-          </div>
+          <div class="reservation-layout">
+            <aside class="reservation-rail">
+              <section class="profile-card">
+                <div>
+                  <p class="eyebrow">Profile</p>
+                  <h2>Reserve as</h2>
+                </div>
+                <label>
+                  Name
+                  <input id="profileNameInput" placeholder="Your name" />
+                </label>
+                <label>
+                  Color
+                  <input id="profileColorInput" type="color" value="#0d8f7a" />
+                </label>
+                <button class="primary-button" id="saveProfileBtn" title="Save profile">
+                  <span>+</span>
+                  Save profile
+                </button>
+              </section>
 
-          <div class="channel-grid" id="channelGrid"></div>
+              <section class="selection-card">
+                <div>
+                  <p class="eyebrow">Selection</p>
+                  <h2 id="selectedChannelsText">No channels selected</h2>
+                </div>
+                <label>
+                  Battery name
+                  <input id="batteryNameInput" placeholder="Cell or battery name" />
+                </label>
+                <label>
+                  Details
+                  <textarea id="channelDetailsInput" rows="4" placeholder="Protocol, electrolyte, notes"></textarea>
+                </label>
+                <div class="selection-actions">
+                  <button class="ghost-button" id="clearSelectionBtn" title="Clear selection">Clear</button>
+                  <button class="danger-button" id="releaseChannelsBtn" title="Release selected channels">Release</button>
+                  <button class="primary-button" id="applyDetailsBtn" title="Apply details">Apply</button>
+                </div>
+              </section>
+            </aside>
+
+            <div class="channel-board-shell">
+              <div class="channel-board-labels">
+                <span>8 wide x 6 high</span>
+                <strong>40 active Neware channels</strong>
+              </div>
+              <div class="channel-grid" id="channelGrid"></div>
+            </div>
+          </div>
         </section>
 
         <section class="view" id="plot">
@@ -190,7 +218,7 @@
             <div class="tool-panel">
               <label>
                 Sample
-                <input id="reportSampleInput" placeholder="TS Graphite batch" />
+                <input id="reportSampleInput" placeholder="Sample batch" />
               </label>
               <label>
                 Batch
@@ -262,53 +290,6 @@
         </section>
       </main>
     </div>
-
-    <dialog id="reservationDialog">
-      <form method="dialog" class="dialog-card" id="reservationForm">
-        <header>
-          <h2>Channel reservation</h2>
-          <button value="cancel" class="icon-button" title="Close">x</button>
-        </header>
-        <input type="hidden" id="reservationId" />
-        <label>
-          Channel
-          <input id="channelInput" required placeholder="Neware 1-1" />
-        </label>
-        <label>
-          Cell or sample
-          <input id="cellInput" required placeholder="Cell A" />
-        </label>
-        <label>
-          Owner
-          <input id="ownerInput" required placeholder="Tom" />
-        </label>
-        <label>
-          Status
-          <select id="reservationStatusInput">
-            <option value="running">Running</option>
-            <option value="reserved">Reserved</option>
-            <option value="available">Available</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
-        </label>
-        <label>
-          Start
-          <input id="startInput" type="datetime-local" />
-        </label>
-        <label>
-          End
-          <input id="endInput" type="datetime-local" />
-        </label>
-        <label class="full">
-          Notes
-          <textarea id="notesInput" rows="3" placeholder="Protocol, electrolyte, warnings"></textarea>
-        </label>
-        <footer>
-          <button type="button" class="danger-button" id="deleteReservationBtn">Delete</button>
-          <button class="primary-button" value="default">Save</button>
-        </footer>
-      </form>
-    </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
