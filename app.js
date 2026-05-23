@@ -1,14 +1,15 @@
 const STORAGE_KEY = "batbat.reservations.v2";
 const PROFILE_KEY = "batbat.profile.v1";
+const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
-const TEAM_MEMBERS = [
-  { id: "tom", name: "Tom", color: "#0d8f7a" },
-  { id: "member-2", name: "Member 2", color: "#6e56cf" },
-  { id: "member-3", name: "Member 3", color: "#e7b10a" },
-  { id: "member-4", name: "Member 4", color: "#f05d48" },
+const DEFAULT_TEAM_MEMBERS = [
+  { id: "tom", name: "Tom", color: "#f0f921" },
+  { id: "member-2", name: "Member 2", color: "#fdca26" },
+  { id: "member-3", name: "Member 3", color: "#cc4778" },
+  { id: "member-4", name: "Member 4", color: "#7e03a8" },
 ];
 
 const state = {
@@ -18,15 +19,17 @@ const state = {
   openChannel: null,
   menuChannel: null,
   clickTimer: null,
+  teamMembers: [...DEFAULT_TEAM_MEMBERS],
   profile: {
     memberId: "tom",
     name: "Tom",
-    color: "#0d8f7a",
+    color: "#f0f921",
   },
   datasets: [],
   selectedDatasetId: null,
   selectedSheet: null,
   plotMode: "lines",
+  plotTheme: "light",
 };
 
 const el = {
@@ -42,6 +45,10 @@ const el = {
   clearSelectionBtn: document.querySelector("#clearSelectionBtn"),
   releaseChannelsBtn: document.querySelector("#releaseChannelsBtn"),
   applyDetailsBtn: document.querySelector("#applyDetailsBtn"),
+  memberList: document.querySelector("#memberList"),
+  memberNameInput: document.querySelector("#memberNameInput"),
+  memberColorInput: document.querySelector("#memberColorInput"),
+  addMemberBtn: document.querySelector("#addMemberBtn"),
   channelDetailOverlay: document.querySelector("#channelDetailOverlay"),
   detailPanel: document.querySelector("#detailPanel"),
   closeDetailBtn: document.querySelector("#closeDetailBtn"),
@@ -53,6 +60,7 @@ const el = {
   xColumnSelect: document.querySelector("#xColumnSelect"),
   yColumnSelect: document.querySelector("#yColumnSelect"),
   plotMode: document.querySelector("#plotMode"),
+  plotTheme: document.querySelector("#plotTheme"),
   plotCanvas: document.querySelector("#plotCanvas"),
   datasetStats: document.querySelector("#datasetStats"),
   exportPlotBtn: document.querySelector("#exportPlotBtn"),
@@ -84,12 +92,14 @@ const el = {
 
 function boot() {
   state.reservations = loadReservations();
+  state.teamMembers = loadTeamMembers();
   state.profile = loadProfile();
   bindNavigation();
   bindReservations();
   bindFiles();
   bindReports();
   bindCalculator();
+  renderMemberList();
   renderReservations();
   renderEmptyPlot();
   calculate();
@@ -134,6 +144,31 @@ function saveReservations() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.reservations));
 }
 
+function loadTeamMembers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEMBER_KEY) || "[]");
+    const members = Array.isArray(saved)
+      ? saved.map(normalizeMember).filter(Boolean)
+      : [];
+    return members.length ? members : [...DEFAULT_TEAM_MEMBERS];
+  } catch {
+    return [...DEFAULT_TEAM_MEMBERS];
+  }
+}
+
+function normalizeMember(member) {
+  if (!member?.name?.trim()) return null;
+  return {
+    id: member.id || crypto.randomUUID(),
+    name: member.name.trim(),
+    color: /^#[0-9a-f]{6}$/i.test(member.color) ? member.color : "#f0f921",
+  };
+}
+
+function saveTeamMembers() {
+  localStorage.setItem(MEMBER_KEY, JSON.stringify(state.teamMembers));
+}
+
 function loadProfile() {
   try {
     const saved = { ...state.profile, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") };
@@ -150,7 +185,7 @@ function saveProfile(memberId = state.profile.memberId) {
 }
 
 function activeMember(memberId = state.profile.memberId) {
-  return TEAM_MEMBERS.find((member) => member.id === memberId) || TEAM_MEMBERS[0];
+  return state.teamMembers.find((member) => member.id === memberId) || state.teamMembers[0];
 }
 
 function channelLabel(channelNumber) {
@@ -161,6 +196,13 @@ function channelLabel(channelNumber) {
 
 function bindReservations() {
   el.exportReservationsBtn.addEventListener("click", exportReservations);
+  el.addMemberBtn.addEventListener("click", addTeamMember);
+  el.memberNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") addTeamMember();
+  });
+  el.memberList.addEventListener("input", handleMemberInput);
+  el.memberList.addEventListener("change", handleMemberInput);
+  el.memberList.addEventListener("click", handleMemberClick);
   el.clearSelectionBtn.addEventListener("click", () => {
     state.selectedChannels.clear();
     syncSelectionInputs();
@@ -189,6 +231,109 @@ function bindReservations() {
   el.channelActionMenu.addEventListener("click", handleChannelMenuAction);
 }
 
+function renderMemberList() {
+  el.memberList.innerHTML = state.teamMembers
+    .map((member, index) => {
+      const checked = member.id === state.profile.memberId ? "checked" : "";
+      const canRemove = state.teamMembers.length > 1 ? "" : "disabled";
+      const moveUp = index === 0 ? "disabled" : "";
+      const moveDown = index === state.teamMembers.length - 1 ? "disabled" : "";
+      return `
+        <div class="member-row" data-member="${escapeHtml(member.id)}">
+          <label class="member-active" title="Quick-reserve member">
+            <input type="radio" name="activeMember" data-action="set-active" ${checked} />
+            <span style="--member-color: ${escapeHtml(member.color)}"></span>
+          </label>
+          <input class="member-name" data-action="rename" value="${escapeHtml(member.name)}" aria-label="Member name" />
+          <input class="member-color" type="color" data-action="recolor" value="${escapeHtml(member.color)}" aria-label="Member color" />
+          <div class="member-tools">
+            <button data-action="move-up" ${moveUp}>Up</button>
+            <button data-action="move-down" ${moveDown}>Down</button>
+            <button data-action="remove" ${canRemove}>Remove</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function addTeamMember() {
+  const name = el.memberNameInput.value.trim();
+  if (!name) return;
+  const member = normalizeMember({
+    name,
+    color: el.memberColorInput.value || "#f0f921",
+  });
+  if (!member) return;
+  state.teamMembers.push(member);
+  saveTeamMembers();
+  saveProfile(member.id);
+  el.memberNameInput.value = "";
+  renderMemberList();
+  renderReservations();
+}
+
+function handleMemberInput(event) {
+  const row = event.target.closest("[data-member]");
+  const action = event.target.dataset.action;
+  if (!row || !action) return;
+  const member = state.teamMembers.find((item) => item.id === row.dataset.member);
+  if (!member) return;
+  const oldName = member.name;
+  const oldColor = member.color;
+
+  if (action === "set-active" && event.target.checked) {
+    saveProfile(member.id);
+  }
+
+  if (action === "rename") {
+    member.name = event.target.value.trim() || member.name;
+  }
+
+  if (action === "recolor") {
+    member.color = event.target.value;
+  }
+
+  state.reservations.forEach((reservation) => {
+    const matchesMember = reservation.memberId === member.id
+      || (reservation.owner === oldName && reservation.color === oldColor);
+    if (matchesMember) {
+      reservation.memberId = member.id;
+      reservation.owner = member.name;
+      reservation.color = member.color;
+    }
+  });
+
+  saveTeamMembers();
+  saveReservations();
+  saveProfile(state.profile.memberId);
+  renderReservations();
+}
+
+function handleMemberClick(event) {
+  const button = event.target.closest("button[data-action]");
+  const row = event.target.closest("[data-member]");
+  if (!button || !row) return;
+  const index = state.teamMembers.findIndex((member) => member.id === row.dataset.member);
+  if (index < 0) return;
+
+  if (button.dataset.action === "move-up" && index > 0) {
+    [state.teamMembers[index - 1], state.teamMembers[index]] = [state.teamMembers[index], state.teamMembers[index - 1]];
+  }
+
+  if (button.dataset.action === "move-down" && index < state.teamMembers.length - 1) {
+    [state.teamMembers[index + 1], state.teamMembers[index]] = [state.teamMembers[index], state.teamMembers[index + 1]];
+  }
+
+  if (button.dataset.action === "remove" && state.teamMembers.length > 1) {
+    const [removed] = state.teamMembers.splice(index, 1);
+    if (removed.id === state.profile.memberId) saveProfile(state.teamMembers[0].id);
+  }
+
+  saveTeamMembers();
+  renderMemberList();
+}
+
 function renderReservations() {
   const reservationsByChannel = new Map(state.reservations.map((item) => [item.channelNumber, item]));
   const cells = Array.from({ length: ACTIVE_CHANNELS }, (_, index) => {
@@ -212,7 +357,7 @@ function renderReservations() {
 
 function channelSquare(channelNumber, reservation, isSelected) {
   const label = channelLabel(channelNumber);
-  const color = reservation?.color || "#ffffff";
+  const color = reservation?.color || "#20132e";
   const owner = reservation?.owner || "";
   const battery = reservation?.battery || "";
   const classes = [
@@ -316,7 +461,7 @@ function channelMenuHtml(channelNumber, reservation, targetCount) {
     </div>
     <div class="menu-section">
       <span>Reserve for</span>
-      ${TEAM_MEMBERS.map(
+      ${state.teamMembers.map(
         (member) => `
           <button class="menu-member" data-action="reserve" data-member="${member.id}">
             <i style="background:${member.color}"></i>
@@ -387,6 +532,7 @@ function reserveChannels(channelNumbers, member = state.profile) {
   channelNumbers.forEach((channelNumber) => {
     const existing = findReservation(channelNumber);
     if (existing) {
+      existing.memberId = member.id;
       existing.owner = member.name;
       existing.color = member.color;
       return;
@@ -394,6 +540,7 @@ function reserveChannels(channelNumbers, member = state.profile) {
     state.reservations.push({
       id: crypto.randomUUID(),
       channelNumber,
+      memberId: member.id,
       owner: member.name,
       color: member.color,
       battery: "",
@@ -479,7 +626,7 @@ function closeChannelDetails() {
 }
 
 function channelDetailHtml(channelNumber, reservation) {
-  const color = reservation?.color || "#ffffff";
+  const color = reservation?.color || "#20132e";
   return `
     <div class="detail-header" style="--channel-color: ${escapeHtml(color)}">
       <div>
@@ -558,6 +705,15 @@ function bindFiles() {
     button.addEventListener("click", () => {
       state.plotMode = button.dataset.mode;
       el.plotMode.querySelectorAll("button").forEach((entry) => {
+        entry.classList.toggle("active", entry === button);
+      });
+      renderPlot();
+    });
+  });
+  el.plotTheme.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.plotTheme = button.dataset.theme;
+      el.plotTheme.querySelectorAll("button").forEach((entry) => {
         entry.classList.toggle("active", entry === button);
       });
       renderPlot();
@@ -766,16 +922,18 @@ function renderPlot() {
     line: { width: 2.4 },
     marker: { size: 5 },
   }));
+  const theme = plotThemeTokens();
 
   Plotly.react(el.plotCanvas, traces, {
     title: { text: `${dataset.name} - ${state.selectedSheet}`, x: 0.03 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(255,255,255,0.72)",
+    paper_bgcolor: theme.paper,
+    plot_bgcolor: theme.plot,
+    font: { color: theme.text },
     margin: { t: 60, r: 26, b: 58, l: 64 },
-    xaxis: { title: xColumn, gridcolor: "#e6eee8", zerolinecolor: "#cfdad2" },
-    yaxis: { title: yColumns.join(", "), gridcolor: "#e6eee8", zerolinecolor: "#cfdad2" },
-    legend: { orientation: "h", y: -0.22 },
-    colorway: ["#0d8f7a", "#f05d48", "#6e56cf", "#e7b10a", "#17211d"],
+    xaxis: { title: xColumn, gridcolor: theme.grid, zerolinecolor: theme.zero },
+    yaxis: { title: yColumns.join(", "), gridcolor: theme.grid, zerolinecolor: theme.zero },
+    legend: { orientation: "h", y: -0.22, font: { color: theme.text } },
+    colorway: plasmaColors(),
   }, { responsive: true, displaylogo: false });
 
   attachMiddleAutoscale(el.plotCanvas);
@@ -790,22 +948,49 @@ function renderEmptyPlot() {
     ["Columns", 0],
   ]);
   if (window.Plotly) {
+    const theme = plotThemeTokens();
     Plotly.react(el.plotCanvas, [], {
       annotations: [
         {
           text: "Load a Neware workbook to begin",
           showarrow: false,
-          font: { size: 18, color: "#68756e" },
+          font: { size: 18, color: theme.muted },
         },
       ],
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(255,255,255,0.65)",
+      paper_bgcolor: theme.paper,
+      plot_bgcolor: theme.plot,
+      font: { color: theme.text },
       xaxis: { visible: false },
       yaxis: { visible: false },
       margin: { t: 20, r: 20, b: 20, l: 20 },
     }, { responsive: true, displaylogo: false });
     attachMiddleAutoscale(el.plotCanvas);
   }
+}
+
+function plasmaColors() {
+  return ["#0d0887", "#5b02a3", "#9c179e", "#cc4778", "#ed7953", "#fdb42f", "#f0f921"];
+}
+
+function plotThemeTokens() {
+  if (state.plotTheme === "dark") {
+    return {
+      paper: "#12091f",
+      plot: "#1a1029",
+      text: "#f5f0ff",
+      muted: "#b8abc9",
+      grid: "#3a2b4d",
+      zero: "#6e4a7e",
+    };
+  }
+  return {
+    paper: "#ffffff",
+    plot: "#ffffff",
+    text: "#18151f",
+    muted: "#6d6478",
+    grid: "#e5dfeb",
+    zero: "#c9bed8",
+  };
 }
 
 function attachMiddleAutoscale(node) {
@@ -1041,6 +1226,7 @@ function chartSpec(dataset, sheetName, table, xColumn, yColumns, title) {
 
 function renderReportCharts(chartSpecs) {
   if (!window.Plotly) return;
+  const theme = plotThemeTokens();
   chartSpecs.forEach((spec, index) => {
     const node = document.querySelector(`#reportChart${index}`);
     if (!node) return;
@@ -1057,13 +1243,14 @@ function renderReportCharts(chartSpecs) {
       node,
       traces,
       {
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "#ffffff",
+        paper_bgcolor: theme.paper,
+        plot_bgcolor: theme.plot,
+        font: { color: theme.text },
         margin: { t: 8, r: 10, b: 42, l: 54 },
-        xaxis: { title: spec.xColumn, gridcolor: "#e6eee8", zerolinecolor: "#d7e0da" },
-        yaxis: { title: spec.yColumns.join(", "), gridcolor: "#e6eee8", zerolinecolor: "#d7e0da" },
+        xaxis: { title: spec.xColumn, gridcolor: theme.grid, zerolinecolor: theme.zero },
+        yaxis: { title: spec.yColumns.join(", "), gridcolor: theme.grid, zerolinecolor: theme.zero },
         showlegend: spec.yColumns.length > 1,
-        colorway: ["#0d8f7a", "#f05d48", "#6e56cf", "#e7b10a"],
+        colorway: plasmaColors(),
       },
       { responsive: true, displayModeBar: false },
     );

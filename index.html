@@ -56,7 +56,6 @@
             </div>
             <div class="action-row">
               <button class="ghost-button" id="exportReservationsBtn" title="Export reservations">
-                <span>v</span>
                 Export
               </button>
             </div>
@@ -87,11 +86,23 @@
                   <button class="primary-button" id="applyDetailsBtn" title="Apply details">Apply</button>
                 </div>
               </section>
+
+              <section class="members-card">
+                <div>
+                  <p class="eyebrow">Team</p>
+                  <h2>Members</h2>
+                </div>
+                <div class="member-list" id="memberList"></div>
+                <div class="member-form">
+                  <input id="memberNameInput" placeholder="New member" />
+                  <input id="memberColorInput" type="color" value="#f0f921" title="Member color" />
+                  <button class="ghost-button" id="addMemberBtn" title="Add member">Add</button>
+                </div>
+              </section>
             </aside>
 
             <div class="channel-board-shell">
               <div class="channel-board-labels">
-                <span>8 wide x 5 high</span>
                 <strong>40 active Neware channels</strong>
               </div>
               <div class="channel-grid" id="channelGrid"></div>
@@ -107,11 +118,9 @@
             </div>
             <div class="action-row">
               <button class="ghost-button" id="exportPlotBtn" title="Export plot image">
-                <span>v</span>
                 PNG
               </button>
               <button class="primary-button" id="exportSelectedCsvBtn" title="Export selected plot data">
-                <span>v</span>
                 CSV
               </button>
             </div>
@@ -147,6 +156,11 @@
                 <button data-mode="markers">Scatter</button>
                 <button data-mode="lines+markers">Both</button>
               </div>
+
+              <div class="segmented" id="plotTheme">
+                <button class="active" data-theme="light">Light plot</button>
+                <button data-theme="dark">Dark plot</button>
+              </div>
             </div>
 
             <div class="plot-stage">
@@ -164,7 +178,6 @@
             </div>
             <div class="action-row">
               <button class="primary-button" id="exportWorkbookZipBtn" title="Export normalized CSV files">
-                <span>v</span>
                 Export CSV pack
               </button>
             </div>
@@ -189,11 +202,9 @@
             </div>
             <div class="action-row">
               <button class="ghost-button" id="printReportBtn" title="Print or save report as PDF">
-                <span>p</span>
                 Print
               </button>
               <button class="primary-button" id="generateReportBtn" title="Generate report">
-                <span>+</span>
                 Generate
               </button>
             </div>
