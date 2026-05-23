@@ -237,6 +237,16 @@ h2 {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled,
+.menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
+}
+
 .board-toolbar,
 .plot-layout,
 .converter-grid,
@@ -401,10 +411,26 @@ textarea:focus {
 }
 
 .channel-square.selected {
-  border-color: var(--ink);
+  border-color: var(--accent);
+  outline: 2px solid rgba(240, 249, 33, 0.72);
+  outline-offset: 3px;
+  transform: translateY(-2px) scale(1.015);
   box-shadow:
-    0 0 0 4px rgba(23, 33, 29, 0.12),
-    0 16px 30px rgba(33, 46, 39, 0.14);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72),
+    0 0 0 7px rgba(240, 249, 33, 0.14),
+    0 18px 34px rgba(33, 46, 39, 0.18);
+}
+
+.channel-square.selected::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(240, 249, 33, 0.2);
 }
 
 .channel-detail-overlay {
@@ -1313,9 +1339,16 @@ textarea:focus {
 
 .channel-square.selected {
   border-color: var(--accent);
+  outline-color: rgba(240, 249, 33, 0.82);
   box-shadow:
-    0 0 0 3px rgba(240, 249, 33, 0.18),
-    0 18px 36px rgba(0, 0, 0, 0.34);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 0 0 7px rgba(240, 249, 33, 0.16),
+    0 18px 40px rgba(0, 0, 0, 0.46);
+}
+
+.channel-square.selected::after {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(240, 249, 33, 0.52);
 }
 
 .channel-number,

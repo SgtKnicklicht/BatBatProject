@@ -218,6 +218,7 @@ function bindReservations() {
   el.memberList.addEventListener("click", handleMemberClick);
   el.clearSelectionBtn.addEventListener("click", () => {
     state.selectedChannels.clear();
+    state.lastSelectedChannel = null;
     syncSelectionInputs();
     renderReservations();
   });
@@ -231,6 +232,12 @@ function bindReservations() {
     if (event.key === "Escape") {
       closeChannelDetails();
       closeChannelMenu();
+      if (!isTypingTarget(event.target) && state.selectedChannels.size) {
+        state.selectedChannels.clear();
+        state.lastSelectedChannel = null;
+        syncSelectionInputs();
+        renderReservations();
+      }
     }
   });
   document.addEventListener("click", (event) => {
@@ -413,6 +420,10 @@ function handleChannelClick(event, channelNumber) {
     ? channelsBetween(state.lastSelectedChannel, channelNumber)
     : [channelNumber];
 
+  if (rangeSelect && !toggleSelect) {
+    state.selectedChannels.clear();
+  }
+
   channels.forEach((currentChannel) => {
     if (toggleSelect && state.selectedChannels.has(currentChannel)) {
       state.selectedChannels.delete(currentChannel);
@@ -421,7 +432,7 @@ function handleChannelClick(event, channelNumber) {
     state.selectedChannels.add(currentChannel);
   });
 
-  state.lastSelectedChannel = channelNumber;
+  state.lastSelectedChannel = state.selectedChannels.size ? channelNumber : null;
 
   syncSelectionInputs();
   renderReservations();
@@ -485,7 +496,7 @@ function channelMenuHtml(channelNumber, reservation, targetCount) {
     </div>
     <button class="menu-button" data-action="details">Add details</button>
     <button class="menu-button" data-action="view">${reservation ? "Show details" : "Open details"}</button>
-    <button class="menu-button danger" data-action="free">Free channel${targetCount > 1 ? "s" : ""}</button>
+    <button class="menu-button danger" data-action="free" ${reservation ? "" : "disabled"}>Free channel</button>
   `;
 }
 
@@ -506,9 +517,9 @@ function handleChannelMenuAction(event) {
   }
 
   if (action === "free") {
-    const selected = new Set(channels);
-    state.reservations = state.reservations.filter((item) => !selected.has(item.channelNumber));
-    channels.forEach((channel) => state.selectedChannels.delete(channel));
+    state.reservations = state.reservations.filter((item) => item.channelNumber !== state.menuChannel);
+    state.selectedChannels.clear();
+    state.lastSelectedChannel = null;
     saveReservations();
     renderReservations();
     closeChannelMenu();
@@ -534,9 +545,9 @@ function handleChannelMenuAction(event) {
 
 function fastReserveChannel(channelNumber) {
   const member = activeMember(state.profile.memberId);
-  const channels = targetChannels(channelNumber);
-  reserveChannels(channels, member);
-  channels.forEach((channel) => state.selectedChannels.add(channel));
+  reserveChannels([channelNumber], member);
+  state.selectedChannels = new Set([channelNumber]);
+  state.lastSelectedChannel = channelNumber;
   renderReservations();
   closeChannelMenu();
 }
@@ -581,10 +592,11 @@ function applySelectedChannelDetails() {
 }
 
 function releaseSelectedChannels() {
-  const selected = new Set(state.selectedChannels);
-  if (!selected.size) return;
-  state.reservations = state.reservations.filter((item) => !selected.has(item.channelNumber));
+  const selected = [...state.selectedChannels];
+  if (selected.length !== 1) return;
+  state.reservations = state.reservations.filter((item) => item.channelNumber !== selected[0]);
   state.selectedChannels.clear();
+  state.lastSelectedChannel = null;
   el.batteryNameInput.value = "";
   el.activeMassInput.value = "";
   el.channelDetailsInput.value = "";
@@ -605,6 +617,13 @@ function syncSelectionInputs() {
   el.batteryNameInput.value = commonBattery || "";
   el.activeMassInput.value = commonMass || "";
   el.channelDetailsInput.value = commonNotes || "";
+
+  const releasable = selected.length === 1 && Boolean(findReservation(selected[0]));
+  el.releaseChannelsBtn.disabled = !releasable;
+  el.releaseChannelsBtn.textContent = selected.length > 1 ? "Release one" : "Release";
+  el.releaseChannelsBtn.title = releasable
+    ? `Release Ch ${channelLabel(selected[0])}`
+    : "Select one reserved channel to release it";
 }
 
 function sharedValue(items, key) {
@@ -615,6 +634,10 @@ function sharedValue(items, key) {
 
 function findReservation(channelNumber) {
   return state.reservations.find((item) => item.channelNumber === channelNumber);
+}
+
+function isTypingTarget(target) {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
 }
 
 function openChannelDetails(channelNumber) {
