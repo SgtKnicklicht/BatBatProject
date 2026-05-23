@@ -191,7 +191,7 @@
                 </label>
                 <label>
                   Active mass
-                  <input id="plotActiveMassInput" type="number" step="0.001" placeholder="mg" />
+                  <input id="plotActiveMassInput" inputmode="decimal" placeholder="mg" />
                 </label>
                 <label>
                   Plot
@@ -290,7 +290,7 @@
           <header class="view-header">
             <div>
               <p class="eyebrow">BatBat Calculator</p>
-              <h1>Electrode C-rate calculator</h1>
+              <h1>Electrode calculator</h1>
             </div>
           </header>
 
@@ -298,66 +298,84 @@
             <section class="calc-panel">
               <div class="calc-panel-header">
                 <div>
-                  <p class="eyebrow">Inputs</p>
-                  <h2>One electrode</h2>
+                  <p class="eyebrow">Build cells</p>
+                  <h2>Mass, loading, and C-rate</h2>
                 </div>
-                <select id="materialPresetSelect" title="Material preset">
-                  <option value="graphite">Graphite</option>
-                  <option value="nmc">NMC / layered oxide</option>
-                  <option value="lfp">LFP</option>
-                  <option value="custom">Custom</option>
-                </select>
+                <button class="ghost-button" id="toggleBatchBtn" title="Batch helper">Batch</button>
               </div>
 
               <div class="calc-grid">
                 <label>
                   Gross electrode
                   <div class="input-combo">
-                    <input id="grossMassInput" type="number" value="49.23" step="0.001" />
-                    <span>mg</span>
-                  </div>
-                </label>
-                <label>
-                  Empty collector
-                  <div class="input-combo">
-                    <input id="emptyMassInput" type="number" value="43.00" step="0.001" />
+                    <input id="grossMassInput" inputmode="decimal" value="49.23" />
                     <span>mg</span>
                   </div>
                 </label>
                 <label>
                   Disc diameter
                   <div class="input-combo">
-                    <input id="diameterInput" type="number" value="15" step="0.1" />
+                    <input id="diameterInput" inputmode="decimal" value="15" />
                     <span>mm</span>
                   </div>
                 </label>
                 <label>
                   Specific capacity
                   <div class="input-combo">
-                    <input id="nominalInput" type="number" value="372" step="1" />
+                    <input id="nominalInput" inputmode="decimal" value="372" />
                     <span>mAh/g</span>
                   </div>
                 </label>
               </div>
 
+              <details class="calc-options">
+                <summary>Options</summary>
+                <div class="calc-grid">
+                  <label>
+                    Material
+                    <select id="materialPresetSelect" title="Material preset">
+                      <option value="graphite">Graphite</option>
+                      <option value="nmc">NMC / layered oxide</option>
+                      <option value="lfp">LFP</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <label>
+                    Bare foil weight
+                    <div class="input-combo">
+                      <input id="emptyMassInput" inputmode="decimal" value="43.00" />
+                      <span>mg</span>
+                    </div>
+                  </label>
+                </div>
+              </details>
+
               <div class="recipe-grid">
                 <label>
                   AM
-                  <input id="recipeAmInput" type="number" value="80" step="0.1" />
+                  <input id="recipeAmInput" inputmode="decimal" value="80" />
                 </label>
                 <label>
                   Carbon
-                  <input id="recipeCarbonInput" type="number" value="10" step="0.1" />
+                  <input id="recipeCarbonInput" inputmode="decimal" value="10" />
                 </label>
                 <label>
                   Binder
-                  <input id="recipeBinderInput" type="number" value="10" step="0.1" />
+                  <input id="recipeBinderInput" inputmode="decimal" value="10" />
                 </label>
                 <label>
                   Extra
-                  <input id="recipeExtraInput" type="number" value="0" step="0.1" />
+                  <input id="recipeExtraInput" inputmode="decimal" value="0" />
                 </label>
               </div>
+
+              <section class="batch-panel" id="batchPanel" hidden>
+                <label>
+                  Batch gross masses
+                  <textarea id="batchMassesInput" rows="4" placeholder="49.23, 49.41, 49.08"></textarea>
+                </label>
+                <div class="batch-results" id="batchResults"></div>
+              </section>
             </section>
 
             <section class="calc-results-panel">

@@ -801,8 +801,8 @@ td {
 th {
   position: sticky;
   top: 0;
-  background: #17211d;
-  color: white;
+  background: rgba(20, 10, 34, 0.96);
+  color: var(--accent);
   text-align: left;
 }
 
@@ -989,13 +989,29 @@ th {
 
 .calc-panel-header {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(240, 249, 33, 0.12);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(13, 8, 135, 0.2), rgba(237, 121, 83, 0.12)),
+    rgba(13, 7, 24, 0.44);
 }
 
 .calc-panel-header select {
   max-width: 220px;
+}
+
+.calc-panel-header h2 {
+  margin-top: 4px;
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+}
+
+.ghost-button.active {
+  border-color: rgba(240, 249, 33, 0.68);
+  box-shadow: 0 0 0 3px rgba(240, 249, 33, 0.08);
 }
 
 .calc-grid {
@@ -1012,6 +1028,33 @@ th {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.5);
+}
+
+.calc-options,
+.batch-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(240, 249, 33, 0.12);
+  border-radius: var(--radius);
+  background: rgba(13, 7, 24, 0.38);
+}
+
+.batch-panel[hidden] {
+  display: none;
+}
+
+.calc-options summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.calc-options[open] summary {
+  margin-bottom: 10px;
 }
 
 .recipe-grid input {
@@ -1067,6 +1110,24 @@ th {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #ffffff;
+}
+
+.rate-table-wrap th,
+.batch-results th {
+  border-bottom: 1px solid rgba(240, 249, 33, 0.28);
+  background: rgba(27, 13, 42, 0.98);
+  color: var(--accent);
+}
+
+.rate-table-wrap td,
+.batch-results td {
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-results {
+  overflow: auto;
+  border: 1px solid rgba(240, 249, 33, 0.12);
+  border-radius: var(--radius);
 }
 
 .rate-table-wrap table {
@@ -1138,8 +1199,7 @@ dialog::backdrop {
 
 .brand-mark,
 .primary-button,
-.segmented button.active,
-th {
+.segmented button.active {
   background: linear-gradient(135deg, #0d0887, #9c179e 52%, #ed7953);
   color: #ffffff;
 }

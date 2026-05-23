@@ -89,6 +89,10 @@ const el = {
   recipeCarbonInput: document.querySelector("#recipeCarbonInput"),
   recipeBinderInput: document.querySelector("#recipeBinderInput"),
   recipeExtraInput: document.querySelector("#recipeExtraInput"),
+  toggleBatchBtn: document.querySelector("#toggleBatchBtn"),
+  batchPanel: document.querySelector("#batchPanel"),
+  batchMassesInput: document.querySelector("#batchMassesInput"),
+  batchResults: document.querySelector("#batchResults"),
   calcResults: document.querySelector("#calcResults"),
   rateTable: document.querySelector("#rateTable"),
   cyclerLineInput: document.querySelector("#cyclerLineInput"),
@@ -716,6 +720,7 @@ function bindFiles() {
     renderColumnControls();
     renderPlot();
   });
+  bindDecimalInput(el.plotActiveMassInput);
   el.plotBatteryNameInput.addEventListener("input", renderPlot);
   el.plotActiveMassInput.addEventListener("input", renderPlot);
   el.plotMode.querySelectorAll("button").forEach((button) => {
@@ -848,8 +853,8 @@ function normalizeValue(value) {
   if (typeof value === "number") return value;
   const text = String(value).trim();
   if (!text) return "";
-  const numeric = Number(text.replace(",", "."));
-  if (/^-?\d+([.,]\d+)?(e-?\d+)?$/i.test(text) && Number.isFinite(numeric)) return numeric;
+  const numeric = readNumber(text);
+  if (/^-?[\d.,]+(e-?\d+)?$/i.test(text) && Number.isFinite(numeric)) return numeric;
   return text;
 }
 
@@ -1693,7 +1698,7 @@ function exportPlot() {
 }
 
 function bindCalculator() {
-  [
+  const decimalInputs = [
     el.grossMassInput,
     el.emptyMassInput,
     el.diameterInput,
@@ -1702,8 +1707,16 @@ function bindCalculator() {
     el.recipeCarbonInput,
     el.recipeBinderInput,
     el.recipeExtraInput,
-  ].forEach((input) => {
+  ];
+  decimalInputs.forEach((input) => {
+    bindDecimalInput(input);
     input.addEventListener("input", calculate);
+  });
+  el.batchMassesInput.addEventListener("input", calculate);
+  el.toggleBatchBtn.addEventListener("click", () => {
+    el.batchPanel.hidden = !el.batchPanel.hidden;
+    el.toggleBatchBtn.classList.toggle("active", !el.batchPanel.hidden);
+    calculate();
   });
   el.materialPresetSelect.addEventListener("change", applyMaterialPreset);
   el.copyCyclerLineBtn.addEventListener("click", async () => {
@@ -1713,6 +1726,21 @@ function bindCalculator() {
     } catch {
       el.cyclerLineInput.select();
     }
+  });
+}
+
+function bindDecimalInput(input) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== ",") return;
+    event.preventDefault();
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    input.setRangeText(".", start, end, "end");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  input.addEventListener("input", () => {
+    const normalized = input.value.replace(/,/g, ".");
+    if (normalized !== input.value) input.value = normalized;
   });
 }
 
@@ -1769,6 +1797,41 @@ function calculate() {
     `C/5=${formatNumber(oneC / 5)} mA`,
     `C/2=${formatNumber(oneC / 2)} mA`,
   ].join(" | ");
+  renderBatchResults(emptyMass, amFraction, area, nominal);
+}
+
+function renderBatchResults(emptyMass, amFraction, area, nominal) {
+  const masses = parseBatchMasses(el.batchMassesInput.value);
+  if (!masses.length) {
+    el.batchResults.innerHTML = "";
+    return;
+  }
+  const rows = masses.map((grossMass, index) => {
+    const activeMass = Math.max(grossMass - emptyMass, 0) * amFraction;
+    const loading = area ? activeMass / area : 0;
+    const oneC = (activeMass / 1000) * nominal;
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${formatNumber(grossMass)} mg</td>
+        <td>${formatNumber(activeMass)} mg</td>
+        <td>${formatNumber(loading)} mg/cm2</td>
+        <td>${formatNumber(oneC)} mA</td>
+      </tr>
+    `;
+  });
+  el.batchResults.innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Gross</th><th>AM</th><th>Loading</th><th>1C</th></tr></thead>
+      <tbody>${rows.join("")}</tbody>
+    </table>
+  `;
+}
+
+function parseBatchMasses(value) {
+  return (String(value || "").match(/-?\d+(?:[.,]\d+)?/g) || [])
+    .map((item) => readNumber(item))
+    .filter((value) => Number.isFinite(value) && value > 0);
 }
 
 function applyMaterialPreset() {
@@ -1896,16 +1959,33 @@ function formatFullDateTime(value) {
 
 function formatNumber(value) {
   if (!Number.isFinite(value)) return "0";
-  return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 5 }).format(value);
+  return new Intl.NumberFormat("en-US", {
+    maximumSignificantDigits: 6,
+    useGrouping: false,
+  }).format(value);
 }
 
 function formatPercent(value) {
   if (!Number.isFinite(value)) return "0%";
-  return new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 2 }).format(value);
+  return new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 2 }).format(value);
 }
 
 function readNumber(value) {
-  const number = Number(String(value ?? "").replace(",", "."));
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  const hasComma = text.includes(",");
+  const hasDot = text.includes(".");
+  let normalized = text;
+  if (hasComma && hasDot) {
+    const lastComma = text.lastIndexOf(",");
+    const lastDot = text.lastIndexOf(".");
+    const decimal = lastComma > lastDot ? "," : ".";
+    const thousands = decimal === "," ? "." : ",";
+    normalized = text.replaceAll(thousands, "").replace(decimal, ".");
+  } else {
+    normalized = text.replace(",", ".");
+  }
+  const number = Number(normalized);
   return Number.isFinite(number) ? number : 0;
 }
 
