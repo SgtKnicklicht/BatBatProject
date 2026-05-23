@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BatBat Project</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">BB</div>
+          <div>
+            <strong>BatBat</strong>
+            <span>Battery toolkit</span>
+          </div>
+        </div>
+
+        <nav class="nav-tabs" aria-label="BatBat modules">
+          <button class="nav-tab active" data-view="channels">
+            <span class="icon">#</span>
+            Channels
+          </button>
+          <button class="nav-tab" data-view="plot">
+            <span class="icon">~</span>
+            Plot
+          </button>
+          <button class="nav-tab" data-view="converter">
+            <span class="icon">&lt;&gt;</span>
+            Converter
+          </button>
+          <button class="nav-tab" data-view="calculator">
+            <span class="icon">f</span>
+            Calculator
+          </button>
+        </nav>
+
+        <div class="sidebar-panel">
+          <span class="panel-label">Session</span>
+          <strong id="sessionSummary">No files loaded</strong>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="view active" id="channels">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Channel board</p>
+              <h1>Reserve battery channels</h1>
+            </div>
+            <div class="action-row">
+              <button class="ghost-button" id="exportReservationsBtn" title="Export reservations">
+                <span>v</span>
+                Export
+              </button>
+              <button class="primary-button" id="addReservationBtn" title="Add reservation">
+                <span>+</span>
+                Reserve
+              </button>
+            </div>
+          </header>
+
+          <div class="board-toolbar">
+            <label>
+              Search
+              <input id="reservationSearch" type="search" placeholder="Cell, owner, channel" />
+            </label>
+            <label>
+              Status
+              <select id="statusFilter">
+                <option value="all">All</option>
+                <option value="running">Running</option>
+                <option value="reserved">Reserved</option>
+                <option value="available">Available</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="channel-grid" id="channelGrid"></div>
+        </section>
+
+        <section class="view" id="plot">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">BatBat Plot</p>
+              <h1>Inspect and plot Neware data</h1>
+            </div>
+            <div class="action-row">
+              <button class="ghost-button" id="exportPlotBtn" title="Export plot image">
+                <span>v</span>
+                PNG
+              </button>
+              <button class="primary-button" id="exportSelectedCsvBtn" title="Export selected plot data">
+                <span>v</span>
+                CSV
+              </button>
+            </div>
+          </header>
+
+          <div class="plot-layout">
+            <div class="tool-panel">
+              <label class="drop-zone" id="dropZone">
+                <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.tsv" multiple />
+                <strong>Drop data files</strong>
+                <span>Neware .xlsx, CSV, or TSV</span>
+              </label>
+
+              <label>
+                Dataset
+                <select id="datasetSelect"></select>
+              </label>
+              <label>
+                Sheet
+                <select id="sheetSelect"></select>
+              </label>
+              <label>
+                X axis
+                <select id="xColumnSelect"></select>
+              </label>
+              <label>
+                Y axis
+                <select id="yColumnSelect" multiple size="6"></select>
+              </label>
+
+              <div class="segmented" id="plotMode">
+                <button class="active" data-mode="lines">Line</button>
+                <button data-mode="markers">Scatter</button>
+                <button data-mode="lines+markers">Both</button>
+              </div>
+            </div>
+
+            <div class="plot-stage">
+              <div class="stats-strip" id="datasetStats"></div>
+              <div id="plotCanvas" class="plot-canvas"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="converter">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Origin export</p>
+              <h1>Convert files to tidy tables</h1>
+            </div>
+            <div class="action-row">
+              <button class="primary-button" id="exportWorkbookZipBtn" title="Export normalized CSV files">
+                <span>v</span>
+                Export CSV pack
+              </button>
+            </div>
+          </header>
+
+          <div class="converter-grid">
+            <div class="data-table-wrap">
+              <table id="previewTable"></table>
+            </div>
+            <div class="schema-panel">
+              <h2>Detected tables</h2>
+              <div id="schemaList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="calculator">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">BatBat Calculator</p>
+              <h1>Quick battery calculations</h1>
+            </div>
+          </header>
+
+          <div class="calculator-grid">
+            <label>
+              Active material mass
+              <div class="input-combo">
+                <input id="massInput" type="number" value="4.863" step="0.001" />
+                <span>mg</span>
+              </div>
+            </label>
+            <label>
+              Capacity
+              <div class="input-combo">
+                <input id="capacityInput" type="number" value="0.0017719" step="0.000001" />
+                <span>Ah</span>
+              </div>
+            </label>
+            <label>
+              Current
+              <div class="input-combo">
+                <input id="currentInput" type="number" value="0.00009" step="0.000001" />
+                <span>A</span>
+              </div>
+            </label>
+            <label>
+              Nominal specific capacity
+              <div class="input-combo">
+                <input id="nominalInput" type="number" value="372" step="1" />
+                <span>mAh/g</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="result-grid" id="calcResults"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="reservationDialog">
+      <form method="dialog" class="dialog-card" id="reservationForm">
+        <header>
+          <h2>Channel reservation</h2>
+          <button value="cancel" class="icon-button" title="Close">x</button>
+        </header>
+        <input type="hidden" id="reservationId" />
+        <label>
+          Channel
+          <input id="channelInput" required placeholder="Neware 1-1" />
+        </label>
+        <label>
+          Cell or sample
+          <input id="cellInput" required placeholder="TS-G4" />
+        </label>
+        <label>
+          Owner
+          <input id="ownerInput" required placeholder="Tom" />
+        </label>
+        <label>
+          Status
+          <select id="reservationStatusInput">
+            <option value="running">Running</option>
+            <option value="reserved">Reserved</option>
+            <option value="available">Available</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+        </label>
+        <label>
+          Start
+          <input id="startInput" type="datetime-local" />
+        </label>
+        <label>
+          End
+          <input id="endInput" type="datetime-local" />
+        </label>
+        <label class="full">
+          Notes
+          <textarea id="notesInput" rows="3" placeholder="Protocol, electrolyte, warnings"></textarea>
+        </label>
+        <footer>
+          <button type="button" class="danger-button" id="deleteReservationBtn">Delete</button>
+          <button class="primary-button" value="default">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

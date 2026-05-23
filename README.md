@@ -1,0 +1,36 @@
+# BatBat Project
+
+BatBat is a static GitHub Pages toolkit for battery-lab workflows.
+
+## Current modules
+
+- **Channels**: browser-local reservation board for Neware battery channels.
+- **BatBat Plot**: import Neware `.xlsx`, `.csv`, and `.tsv` files, choose sheets and columns, plot data, and export selected plot tables.
+- **Converter**: inspect detected workbook sheets and export normalized CSV tables for Origin.
+- **Calculator**: quick active-material, capacity, and C-rate calculations.
+
+## Data handling
+
+Files are parsed in the browser. The app does not upload battery data to a server.
+
+The Neware importer repairs worksheet ranges before parsing. This matters because some exported workbooks contain useful sheet data while their Excel dimension metadata incorrectly reports only `A1`.
+
+## GitHub Pages
+
+This repo is intentionally build-free for the first version. Serve the repository root with GitHub Pages:
+
+1. Open repository settings.
+2. Go to **Pages**.
+3. Select **Deploy from a branch**.
+4. Choose `main` and `/root`.
+
+## Local preview
+
+Open `index.html` directly in a browser, or run any static web server in the repository root.
+
+## Next milestones
+
+- Import the current channel-reservation workbook.
+- Add team-wide persistence through a small backend or GitHub-backed data file.
+- Add project-specific plot presets for capacity retention, voltage profiles, rate scans, and dQ/dV workflows.
+- Add multi-file overlay plotting and exported Origin templates.
