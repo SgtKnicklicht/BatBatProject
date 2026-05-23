@@ -23,6 +23,10 @@
             <span class="icon">#</span>
             Channels
           </button>
+          <button class="nav-tab" data-view="team">
+            <span class="icon">@</span>
+            Team
+          </button>
           <button class="nav-tab" data-view="plot">
             <span class="icon">~</span>
             Plot
@@ -87,18 +91,6 @@
                 </div>
               </section>
 
-              <section class="members-card">
-                <div>
-                  <p class="eyebrow">Team</p>
-                  <h2>Members</h2>
-                </div>
-                <div class="member-list" id="memberList"></div>
-                <div class="member-form">
-                  <input id="memberNameInput" placeholder="New member" />
-                  <input id="memberColorInput" type="color" value="#f0f921" title="Member color" />
-                  <button class="ghost-button" id="addMemberBtn" title="Add member">Add</button>
-                </div>
-              </section>
             </aside>
 
             <div class="channel-board-shell">
@@ -107,6 +99,30 @@
               </div>
               <div class="channel-grid" id="channelGrid"></div>
             </div>
+          </div>
+        </section>
+
+        <section class="view" id="team">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Team</p>
+              <h1>Members</h1>
+            </div>
+          </header>
+
+          <div class="team-layout">
+            <section class="members-card">
+              <div>
+                <p class="eyebrow">Quick reserve</p>
+                <h2>Reservation members</h2>
+              </div>
+              <div class="member-list" id="memberList"></div>
+              <div class="member-form">
+                <input id="memberNameInput" placeholder="New member" />
+                <input id="memberColorInput" type="color" value="#5b02a3" title="Member color" />
+                <button class="ghost-button" id="addMemberBtn" title="Add member">Add</button>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -138,18 +154,6 @@
                 Dataset
                 <select id="datasetSelect"></select>
               </label>
-              <label>
-                Sheet
-                <select id="sheetSelect"></select>
-              </label>
-              <label>
-                X axis
-                <select id="xColumnSelect"></select>
-              </label>
-              <label>
-                Y axis
-                <select id="yColumnSelect" multiple size="6"></select>
-              </label>
 
               <div class="segmented" id="plotMode">
                 <button class="active" data-mode="lines">Line</button>
@@ -161,10 +165,49 @@
                 <button class="active" data-theme="light">Light plot</button>
                 <button data-theme="dark">Dark plot</button>
               </div>
+
+              <details class="advanced-controls" id="advancedPlotControls">
+                <summary>Custom axes</summary>
+                <label>
+                  Sheet
+                  <select id="sheetSelect"></select>
+                </label>
+                <label>
+                  X axis
+                  <select id="xColumnSelect"></select>
+                </label>
+                <label>
+                  Y axis
+                  <select id="yColumnSelect" multiple size="6"></select>
+                </label>
+              </details>
             </div>
 
             <div class="plot-stage">
-              <div class="stats-strip" id="datasetStats"></div>
+              <div class="plot-context">
+                <label>
+                  Battery
+                  <input id="plotBatteryNameInput" placeholder="Cell or battery name" />
+                </label>
+                <label>
+                  Active mass
+                  <input id="plotActiveMassInput" type="number" step="0.001" placeholder="mg" />
+                </label>
+                <label>
+                  Plot
+                  <select id="plotMethodSelect">
+                    <option value="cv">CV: current vs voltage</option>
+                    <option value="cv-specific">CV: specific current vs voltage</option>
+                    <option value="cd">CD: voltage vs capacity</option>
+                    <option value="rate">Rate scan: capacity vs cycle</option>
+                    <option value="dqdv">dQ/dV: derivative curve</option>
+                    <option value="eis">EIS: Nyquist</option>
+                    <option value="gitt">GITT: voltage vs time</option>
+                    <option value="custom">Custom axes</option>
+                  </select>
+                </label>
+                <div class="plot-hint" id="datasetStats"></div>
+              </div>
               <div id="plotCanvas" class="plot-canvas"></div>
             </div>
           </div>

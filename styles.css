@@ -29,7 +29,8 @@ body {
   overflow-x: hidden;
   background:
     radial-gradient(circle at 12% 8%, rgba(156, 23, 158, 0.28), transparent 32%),
-    radial-gradient(circle at 86% 12%, rgba(240, 249, 33, 0.16), transparent 34%),
+    radial-gradient(circle at 82% 10%, rgba(237, 121, 83, 0.24), transparent 34%),
+    radial-gradient(circle at 92% 28%, rgba(253, 180, 47, 0.14), transparent 30%),
     linear-gradient(135deg, rgba(13, 8, 135, 0.38), transparent 42%),
     var(--paper);
   color: var(--ink);
@@ -338,7 +339,7 @@ textarea:focus {
 
 .channel-board-shell {
   padding: clamp(12px, 1.6vw, 16px);
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
 }
 
@@ -358,10 +359,9 @@ textarea:focus {
 }
 
 .channel-grid {
-  --channel-width: clamp(64px, min(calc((100vw - 680px) / 8), 82px), 82px);
-  --channel-height: clamp(44px, calc((100dvh - 310px) / 5), 58px);
+  --channel-height: clamp(58px, calc((100dvh - 300px) / 5), 82px);
   display: grid;
-  grid-template-columns: repeat(8, var(--channel-width));
+  grid-template-columns: repeat(8, minmax(72px, 1fr));
   grid-template-rows: repeat(5, var(--channel-height));
   justify-content: center;
   gap: clamp(6px, 0.65vw, 10px);
@@ -700,7 +700,7 @@ textarea:focus {
 
 .segmented {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -716,6 +716,7 @@ textarea:focus {
 .segmented button.active {
   background: var(--ink);
   color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(240, 249, 33, 0.62);
 }
 
 .plot-stage {
@@ -723,37 +724,37 @@ textarea:focus {
   padding: 14px;
 }
 
-.stats-strip {
+.plot-context {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, 1fr) 150px minmax(220px, 1.2fr) minmax(220px, 1fr);
   gap: 10px;
+  align-items: end;
   margin-bottom: 12px;
 }
 
-.stat {
-  min-height: 70px;
-  padding: 12px;
+.plot-hint {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
   border-radius: var(--radius);
-  background: #ffffff;
   border: 1px solid var(--line);
-}
-
-.stat span {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   font-weight: 800;
-  text-transform: uppercase;
 }
 
-.stat strong {
-  display: block;
-  margin-top: 5px;
-  font-size: 1.2rem;
+.plot-hint span + span::before {
+  content: "/";
+  margin-right: 8px;
+  color: rgba(240, 249, 33, 0.42);
 }
 
 .plot-canvas {
   width: 100%;
-  min-height: clamp(390px, calc(100dvh - 235px), 620px);
+  min-height: clamp(450px, calc(100dvh - 245px), 700px);
 }
 
 .converter-grid {
@@ -963,6 +964,10 @@ th {
   grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
   gap: 14px;
   align-items: start;
+}
+
+.team-layout {
+  max-width: 760px;
 }
 
 .calc-panel,
@@ -1200,6 +1205,14 @@ textarea:focus {
   background: rgba(156, 23, 158, 0.28);
 }
 
+.segmented button.active {
+  background: rgba(38, 18, 56, 0.96);
+  color: var(--ink);
+  box-shadow:
+    inset 0 0 0 1px rgba(240, 249, 33, 0.58),
+    0 0 18px rgba(240, 249, 33, 0.08);
+}
+
 .danger-button,
 .menu-button.danger {
   background: rgba(237, 121, 83, 0.16);
@@ -1280,15 +1293,6 @@ textarea:focus {
 .drop-zone strong,
 .report-empty strong {
   color: var(--ink);
-}
-
-.stats-strip {
-  gap: 8px;
-}
-
-.stat {
-  min-height: 60px;
-  padding: 10px;
 }
 
 .members-card {
@@ -1403,6 +1407,24 @@ textarea:focus {
   align-self: stretch;
 }
 
+.advanced-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.advanced-controls summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.advanced-controls[open] {
+  padding-top: 4px;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -1426,7 +1448,7 @@ textarea:focus {
   }
 
   .nav-tabs {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .nav-tab {
@@ -1451,7 +1473,7 @@ textarea:focus {
     align-content: start;
   }
 
-  .stats-strip {
+  .plot-context {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1486,6 +1508,10 @@ textarea:focus {
     grid-template-columns: repeat(8, var(--channel-width));
     grid-template-rows: none;
     grid-auto-rows: var(--channel-height);
+  }
+
+  .plot-context {
+    grid-template-columns: 1fr;
   }
 
   .channel-square {
