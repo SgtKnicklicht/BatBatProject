@@ -16,6 +16,8 @@ const state = {
   selectedChannels: new Set(),
   lastSelectedChannel: null,
   openChannel: null,
+  menuChannel: null,
+  clickTimer: null,
   profile: {
     memberId: "tom",
     name: "Tom",
@@ -33,7 +35,6 @@ const el = {
   sessionSummary: document.querySelector("#sessionSummary"),
   channelGrid: document.querySelector("#channelGrid"),
   exportReservationsBtn: document.querySelector("#exportReservationsBtn"),
-  memberSelect: document.querySelector("#memberSelect"),
   selectedChannelsText: document.querySelector("#selectedChannelsText"),
   batteryNameInput: document.querySelector("#batteryNameInput"),
   activeMassInput: document.querySelector("#activeMassInput"),
@@ -44,6 +45,7 @@ const el = {
   channelDetailOverlay: document.querySelector("#channelDetailOverlay"),
   detailPanel: document.querySelector("#detailPanel"),
   closeDetailBtn: document.querySelector("#closeDetailBtn"),
+  channelActionMenu: document.querySelector("#channelActionMenu"),
   dropZone: document.querySelector("#dropZone"),
   fileInput: document.querySelector("#fileInput"),
   datasetSelect: document.querySelector("#datasetSelect"),
@@ -83,7 +85,6 @@ const el = {
 function boot() {
   state.reservations = loadReservations();
   state.profile = loadProfile();
-  renderMemberSelect();
   bindNavigation();
   bindReservations();
   bindFiles();
@@ -142,8 +143,8 @@ function loadProfile() {
   }
 }
 
-function saveProfile() {
-  const member = activeMember(el.memberSelect.value);
+function saveProfile(memberId = state.profile.memberId) {
+  const member = activeMember(memberId);
   state.profile = { memberId: member.id, name: member.name, color: member.color };
   localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
 }
@@ -152,21 +153,8 @@ function activeMember(memberId = state.profile.memberId) {
   return TEAM_MEMBERS.find((member) => member.id === memberId) || TEAM_MEMBERS[0];
 }
 
-function renderMemberSelect() {
-  el.memberSelect.innerHTML = TEAM_MEMBERS.map(
-    (member) => `<option value="${member.id}">${escapeHtml(member.name)}</option>`,
-  ).join("");
-  el.memberSelect.value = state.profile.memberId;
-  el.memberSelect.style.setProperty("--member-color", state.profile.color);
-}
-
 function bindReservations() {
   el.exportReservationsBtn.addEventListener("click", exportReservations);
-  el.memberSelect.addEventListener("change", () => {
-    saveProfile();
-    el.memberSelect.style.setProperty("--member-color", state.profile.color);
-    renderReservations();
-  });
   el.clearSelectionBtn.addEventListener("click", () => {
     state.selectedChannels.clear();
     syncSelectionInputs();
@@ -179,8 +167,20 @@ function bindReservations() {
     if (event.target === el.channelDetailOverlay) closeChannelDetails();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeChannelDetails();
+    if (event.key === "Escape") {
+      closeChannelDetails();
+      closeChannelMenu();
+    }
   });
+  document.addEventListener("click", (event) => {
+    if (
+      !event.target.closest(".channel-action-menu") &&
+      !event.target.closest(".channel-square")
+    ) {
+      closeChannelMenu();
+    }
+  });
+  el.channelActionMenu.addEventListener("click", handleChannelMenuAction);
 }
 
 function renderReservations() {
@@ -197,7 +197,8 @@ function renderReservations() {
     button.addEventListener("click", (event) => handleChannelClick(event, Number(button.dataset.channel)));
     button.addEventListener("dblclick", (event) => {
       event.preventDefault();
-      openChannelDetails(Number(button.dataset.channel));
+      clearTimeout(state.clickTimer);
+      fastReserveChannel(Number(button.dataset.channel));
     });
   });
   syncSelectionInputs();
@@ -230,16 +231,20 @@ function channelSquare(channelNumber, reservation, isSelected) {
 }
 
 function handleChannelClick(event, channelNumber) {
-  saveProfile();
   const rangeSelect = event.shiftKey && state.lastSelectedChannel;
   const toggleSelect = event.ctrlKey || event.metaKey;
+  clearTimeout(state.clickTimer);
+
+  if (!rangeSelect && !toggleSelect) {
+    state.clickTimer = window.setTimeout(() => {
+      openChannelMenu(channelNumber, event.currentTarget);
+    }, 180);
+    return;
+  }
+
   const channels = rangeSelect
     ? channelsBetween(state.lastSelectedChannel, channelNumber)
     : [channelNumber];
-
-  if (!toggleSelect && !rangeSelect) {
-    state.selectedChannels.clear();
-  }
 
   channels.forEach((currentChannel) => {
     if (toggleSelect && state.selectedChannels.has(currentChannel)) {
@@ -249,7 +254,6 @@ function handleChannelClick(event, channelNumber) {
     state.selectedChannels.add(currentChannel);
   });
 
-  reserveChannels(channels.filter((currentChannel) => !findReservation(currentChannel)));
   state.lastSelectedChannel = channelNumber;
 
   syncSelectionInputs();
@@ -262,19 +266,121 @@ function channelsBetween(start, end) {
   return Array.from({ length: max - min + 1 }, (_, index) => min + index);
 }
 
-function reserveChannels(channelNumbers) {
+function targetChannels(channelNumber) {
+  return state.selectedChannels.has(channelNumber)
+    ? [...state.selectedChannels].sort((a, b) => a - b)
+    : [channelNumber];
+}
+
+function openChannelMenu(channelNumber, anchor) {
+  state.menuChannel = channelNumber;
+  const reservation = findReservation(channelNumber);
+  const targetCount = targetChannels(channelNumber).length;
+  const rect = anchor.getBoundingClientRect();
+  el.channelActionMenu.innerHTML = channelMenuHtml(channelNumber, reservation, targetCount);
+  el.channelActionMenu.hidden = false;
+  const menuRect = el.channelActionMenu.getBoundingClientRect();
+  const left = Math.min(rect.right + 10, window.innerWidth - menuRect.width - 12);
+  const top = Math.min(rect.top, window.innerHeight - menuRect.height - 12);
+  el.channelActionMenu.style.left = `${Math.max(12, left)}px`;
+  el.channelActionMenu.style.top = `${Math.max(12, top)}px`;
+  window.requestAnimationFrame(() => el.channelActionMenu.classList.add("open"));
+}
+
+function closeChannelMenu() {
+  el.channelActionMenu.classList.remove("open");
+  el.channelActionMenu.hidden = true;
+  state.menuChannel = null;
+}
+
+function channelMenuHtml(channelNumber, reservation, targetCount) {
+  return `
+    <div class="menu-title">
+      <strong>Channel ${channelNumber}</strong>
+      <span>${targetCount > 1 ? `${targetCount} selected` : reservation ? "Reserved" : "Available"}</span>
+    </div>
+    <div class="menu-section">
+      <span>Reserve for</span>
+      ${TEAM_MEMBERS.map(
+        (member) => `
+          <button class="menu-member" data-action="reserve" data-member="${member.id}">
+            <i style="background:${member.color}"></i>
+            ${escapeHtml(member.name)}
+          </button>
+        `,
+      ).join("")}
+    </div>
+    <button class="menu-button" data-action="details">Add details</button>
+    <button class="menu-button" data-action="view">Show reservation</button>
+    <button class="menu-button danger" data-action="free">Free channel${targetCount > 1 ? "s" : ""}</button>
+  `;
+}
+
+function handleChannelMenuAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button || !state.menuChannel) return;
+  const action = button.dataset.action;
+  const channels = targetChannels(state.menuChannel);
+
+  if (action === "reserve") {
+    const member = activeMember(button.dataset.member);
+    saveProfile(member.id);
+    reserveChannels(channels, member);
+    channels.forEach((channel) => state.selectedChannels.add(channel));
+    renderReservations();
+    closeChannelMenu();
+    return;
+  }
+
+  if (action === "free") {
+    const selected = new Set(channels);
+    state.reservations = state.reservations.filter((item) => !selected.has(item.channelNumber));
+    channels.forEach((channel) => state.selectedChannels.delete(channel));
+    saveReservations();
+    renderReservations();
+    closeChannelMenu();
+    return;
+  }
+
+  if (action === "details") {
+    state.selectedChannels = new Set(channels);
+    channels
+      .filter((channel) => !findReservation(channel))
+      .forEach((channel) => state.selectedChannels.add(channel));
+    syncSelectionInputs();
+    closeChannelMenu();
+    el.batteryNameInput.focus();
+    return;
+  }
+
+  if (action === "view") {
+    openChannelDetails(state.menuChannel);
+    closeChannelMenu();
+  }
+}
+
+function fastReserveChannel(channelNumber) {
+  const member = activeMember(state.profile.memberId);
+  const channels = targetChannels(channelNumber);
+  reserveChannels(channels, member);
+  channels.forEach((channel) => state.selectedChannels.add(channel));
+  renderReservations();
+  closeChannelMenu();
+}
+
+function reserveChannels(channelNumbers, member = state.profile) {
   channelNumbers.forEach((channelNumber) => {
     const existing = findReservation(channelNumber);
     if (existing) {
-      existing.owner = state.profile.name;
-      existing.color = state.profile.color;
+      existing.owner = member.name;
+      existing.color = member.color;
       return;
     }
     state.reservations.push({
       id: crypto.randomUUID(),
       channelNumber,
-      owner: state.profile.name,
-      color: state.profile.color,
+      owner: member.name,
+      color: member.color,
       battery: "",
       activeMass: "",
       notes: "",
@@ -287,15 +393,12 @@ function reserveChannels(channelNumbers) {
 function applySelectedChannelDetails() {
   const selected = [...state.selectedChannels];
   if (!selected.length) return;
-  saveProfile();
   reserveChannels(selected);
   selected.forEach((channelNumber) => {
     const reservation = findReservation(channelNumber);
     reservation.battery = el.batteryNameInput.value.trim();
     reservation.activeMass = el.activeMassInput.value.trim();
     reservation.notes = el.channelDetailsInput.value.trim();
-    reservation.owner = state.profile.name;
-    reservation.color = state.profile.color;
     reservation.createdAt ||= new Date().toISOString();
   });
   saveReservations();

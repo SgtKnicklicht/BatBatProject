@@ -147,7 +147,7 @@ button {
 
 .workspace {
   min-width: 0;
-  padding: 34px clamp(18px, 4vw, 54px);
+  padding: 24px clamp(18px, 4vw, 54px);
 }
 
 .view {
@@ -164,7 +164,7 @@ button {
   align-items: end;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 h1,
@@ -175,7 +175,7 @@ p {
 
 h1 {
   margin-top: 4px;
-  font-size: clamp(2rem, 5vw, 4.7rem);
+  font-size: clamp(2rem, 4.5vw, 4rem);
   line-height: 0.95;
   letter-spacing: 0;
 }
@@ -286,16 +286,15 @@ textarea:focus {
 
 .reservation-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
   gap: 18px;
-  align-items: end;
+  align-items: start;
 }
 
 .reservation-rail {
   display: grid;
   gap: 14px;
-  align-self: stretch;
-  align-content: end;
+  align-content: start;
 }
 
 .selection-card,
@@ -337,11 +336,11 @@ textarea:focus {
 }
 
 .channel-board-labels {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 170px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .channel-board-labels span {
@@ -351,21 +350,13 @@ textarea:focus {
   text-transform: uppercase;
 }
 
-.member-picker {
-  position: relative;
-}
-
-.member-picker select {
-  border-color: color-mix(in srgb, var(--member-color, var(--accent)) 52%, var(--line));
-  box-shadow: inset 7px 0 0 var(--member-color, var(--accent));
-  font-weight: 900;
-}
-
 .channel-grid {
+  --channel-size: clamp(48px, calc((100vh - 360px) / 8), 64px);
   display: grid;
-  grid-template-columns: repeat(5, minmax(82px, 1fr));
-  grid-template-rows: repeat(8, minmax(82px, 1fr));
-  gap: clamp(7px, 1.2vw, 12px);
+  grid-template-columns: repeat(5, var(--channel-size));
+  grid-template-rows: repeat(8, var(--channel-size));
+  justify-content: center;
+  gap: clamp(6px, 0.8vw, 10px);
 }
 
 .channel-square {
@@ -373,12 +364,12 @@ textarea:focus {
   display: grid;
   aspect-ratio: 1;
   min-width: 0;
-  min-height: 82px;
+  min-height: 0;
   place-items: center;
   align-content: center;
   gap: 3px;
   border: 1px solid rgba(23, 33, 29, 0.1);
-  border-radius: 18px;
+  border-radius: 15px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.44)),
     var(--channel-color, #ffffff);
@@ -426,6 +417,91 @@ textarea:focus {
 
 .channel-detail-overlay[hidden] {
   display: none;
+}
+
+.channel-action-menu {
+  position: fixed;
+  z-index: 35;
+  width: 230px;
+  padding: 10px;
+  border: 1px solid rgba(23, 33, 29, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 24px 70px rgba(23, 33, 29, 0.22);
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.channel-action-menu.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.channel-action-menu[hidden] {
+  display: none;
+}
+
+.menu-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 10px;
+}
+
+.menu-title span,
+.menu-section > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.menu-section {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(247, 250, 244, 0.74);
+}
+
+.menu-member,
+.menu-button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ink);
+  font-weight: 850;
+  text-align: left;
+}
+
+.menu-member:hover,
+.menu-button:hover {
+  background: rgba(13, 143, 122, 0.1);
+}
+
+.menu-member i {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 3px rgba(23, 33, 29, 0.08);
+}
+
+.menu-button {
+  margin-top: 6px;
+}
+
+.menu-button.danger {
+  color: #bb2f1d;
 }
 
 .channel-detail-panel {
@@ -518,10 +594,10 @@ textarea:focus {
 
 .channel-number {
   position: absolute;
-  top: 9px;
-  left: 10px;
+  top: 7px;
+  left: 8px;
   color: rgba(23, 33, 29, 0.6);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 900;
 }
 
@@ -529,7 +605,7 @@ textarea:focus {
   max-width: 88%;
   overflow: hidden;
   color: var(--ink);
-  font-size: clamp(0.78rem, 1.35vw, 1rem);
+  font-size: clamp(0.68rem, 1vw, 0.86rem);
   line-height: 1.1;
   text-align: center;
   text-overflow: ellipsis;
@@ -540,7 +616,7 @@ textarea:focus {
   max-width: 88%;
   overflow: hidden;
   color: rgba(23, 33, 29, 0.66);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-style: normal;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -1107,12 +1183,12 @@ dialog::backdrop {
   }
 
   .channel-grid {
-    grid-template-columns: repeat(5, minmax(48px, 1fr));
+    --channel-size: clamp(48px, calc((100vw - 64px) / 5), 64px);
+    grid-template-columns: repeat(5, var(--channel-size));
     grid-template-rows: none;
   }
 
   .channel-square {
-    min-height: 58px;
     border-radius: 14px;
   }
 
