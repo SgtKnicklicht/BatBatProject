@@ -1,15 +1,24 @@
 const STORAGE_KEY = "batbat.reservations.v2";
 const PROFILE_KEY = "batbat.profile.v1";
 const VIEW_KEY = "batbat.activeView.v1";
-const CHANNEL_COLUMNS = 8;
-const CHANNEL_ROWS = 6;
-const ACTIVE_CHANNELS = 40;
+const CHANNEL_COLUMNS = 5;
+const CHANNEL_ROWS = 8;
+const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
+const TEAM_MEMBERS = [
+  { id: "tom", name: "Tom", color: "#0d8f7a" },
+  { id: "member-2", name: "Member 2", color: "#6e56cf" },
+  { id: "member-3", name: "Member 3", color: "#e7b10a" },
+  { id: "member-4", name: "Member 4", color: "#f05d48" },
+];
 
 const state = {
   reservations: [],
   selectedChannels: new Set(),
+  lastSelectedChannel: null,
+  openChannel: null,
   profile: {
-    name: "Team member",
+    memberId: "tom",
+    name: "Tom",
     color: "#0d8f7a",
   },
   datasets: [],
@@ -24,15 +33,17 @@ const el = {
   sessionSummary: document.querySelector("#sessionSummary"),
   channelGrid: document.querySelector("#channelGrid"),
   exportReservationsBtn: document.querySelector("#exportReservationsBtn"),
-  profileNameInput: document.querySelector("#profileNameInput"),
-  profileColorInput: document.querySelector("#profileColorInput"),
-  saveProfileBtn: document.querySelector("#saveProfileBtn"),
+  memberSelect: document.querySelector("#memberSelect"),
   selectedChannelsText: document.querySelector("#selectedChannelsText"),
   batteryNameInput: document.querySelector("#batteryNameInput"),
+  activeMassInput: document.querySelector("#activeMassInput"),
   channelDetailsInput: document.querySelector("#channelDetailsInput"),
   clearSelectionBtn: document.querySelector("#clearSelectionBtn"),
   releaseChannelsBtn: document.querySelector("#releaseChannelsBtn"),
   applyDetailsBtn: document.querySelector("#applyDetailsBtn"),
+  channelDetailOverlay: document.querySelector("#channelDetailOverlay"),
+  detailPanel: document.querySelector("#detailPanel"),
+  closeDetailBtn: document.querySelector("#closeDetailBtn"),
   dropZone: document.querySelector("#dropZone"),
   fileInput: document.querySelector("#fileInput"),
   datasetSelect: document.querySelector("#datasetSelect"),
@@ -64,8 +75,7 @@ const el = {
 function boot() {
   state.reservations = loadReservations();
   state.profile = loadProfile();
-  el.profileNameInput.value = state.profile.name;
-  el.profileColorInput.value = state.profile.color;
+  renderMemberSelect();
   bindNavigation();
   bindReservations();
   bindFiles();
@@ -96,8 +106,16 @@ function switchView(viewId) {
 
 function loadReservations() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(saved) ? saved : [];
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return Array.isArray(saved)
+      ? saved
+          .filter((item) => Number(item.channelNumber) <= ACTIVE_CHANNELS)
+          .map((item) => ({
+            ...item,
+            createdAt: item.createdAt || item.reservedAt || new Date().toISOString(),
+            activeMass: item.activeMass || "",
+          }))
+      : [];
   } catch {
     return [];
   }
@@ -109,28 +127,38 @@ function saveReservations() {
 
 function loadProfile() {
   try {
-    return { ...state.profile, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") };
+    const saved = { ...state.profile, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") };
+    return activeMember(saved.memberId) ? saved : state.profile;
   } catch {
     return state.profile;
   }
 }
 
 function saveProfile() {
-  state.profile = {
-    name: el.profileNameInput.value.trim() || "Team member",
-    color: el.profileColorInput.value || "#0d8f7a",
-  };
+  const member = activeMember(el.memberSelect.value);
+  state.profile = { memberId: member.id, name: member.name, color: member.color };
   localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
+}
+
+function activeMember(memberId = state.profile.memberId) {
+  return TEAM_MEMBERS.find((member) => member.id === memberId) || TEAM_MEMBERS[0];
+}
+
+function renderMemberSelect() {
+  el.memberSelect.innerHTML = TEAM_MEMBERS.map(
+    (member) => `<option value="${member.id}">${escapeHtml(member.name)}</option>`,
+  ).join("");
+  el.memberSelect.value = state.profile.memberId;
+  el.memberSelect.style.setProperty("--member-color", state.profile.color);
 }
 
 function bindReservations() {
   el.exportReservationsBtn.addEventListener("click", exportReservations);
-  el.saveProfileBtn.addEventListener("click", () => {
+  el.memberSelect.addEventListener("change", () => {
     saveProfile();
+    el.memberSelect.style.setProperty("--member-color", state.profile.color);
     renderReservations();
   });
-  el.profileNameInput.addEventListener("change", saveProfile);
-  el.profileColorInput.addEventListener("input", saveProfile);
   el.clearSelectionBtn.addEventListener("click", () => {
     state.selectedChannels.clear();
     syncSelectionInputs();
@@ -138,26 +166,36 @@ function bindReservations() {
   });
   el.releaseChannelsBtn.addEventListener("click", releaseSelectedChannels);
   el.applyDetailsBtn.addEventListener("click", applySelectedChannelDetails);
+  el.closeDetailBtn.addEventListener("click", closeChannelDetails);
+  el.channelDetailOverlay.addEventListener("click", (event) => {
+    if (event.target === el.channelDetailOverlay) closeChannelDetails();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeChannelDetails();
+  });
 }
 
 function renderReservations() {
   const reservationsByChannel = new Map(state.reservations.map((item) => [item.channelNumber, item]));
-  const cells = Array.from({ length: CHANNEL_COLUMNS * CHANNEL_ROWS }, (_, index) => {
+  const cells = Array.from({ length: ACTIVE_CHANNELS }, (_, index) => {
     const channelNumber = index + 1;
-    const isActive = channelNumber <= ACTIVE_CHANNELS;
     const reservation = reservationsByChannel.get(channelNumber);
     const isSelected = state.selectedChannels.has(channelNumber);
-    return channelSquare(channelNumber, isActive, reservation, isSelected);
+    return channelSquare(channelNumber, reservation, isSelected);
   });
 
   el.channelGrid.innerHTML = cells.join("");
-  el.channelGrid.querySelectorAll(".channel-square[data-active='true']").forEach((button) => {
-    button.addEventListener("click", () => handleChannelClick(Number(button.dataset.channel)));
+  el.channelGrid.querySelectorAll(".channel-square").forEach((button) => {
+    button.addEventListener("click", (event) => handleChannelClick(event, Number(button.dataset.channel)));
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      openChannelDetails(Number(button.dataset.channel));
+    });
   });
   syncSelectionInputs();
 }
 
-function channelSquare(channelNumber, isActive, reservation, isSelected) {
+function channelSquare(channelNumber, reservation, isSelected) {
   const color = reservation?.color || "#ffffff";
   const owner = reservation?.owner || "";
   const battery = reservation?.battery || "";
@@ -165,7 +203,6 @@ function channelSquare(channelNumber, isActive, reservation, isSelected) {
     "channel-square",
     reservation ? "reserved" : "",
     isSelected ? "selected" : "",
-    isActive ? "" : "inactive",
   ]
     .filter(Boolean)
     .join(" ");
@@ -174,34 +211,47 @@ function channelSquare(channelNumber, isActive, reservation, isSelected) {
     <button
       class="${classes}"
       data-channel="${channelNumber}"
-      data-active="${isActive}"
       style="--channel-color: ${escapeHtml(color)}"
-      ${isActive ? "" : "disabled"}
-      title="${isActive ? `Channel ${channelNumber}` : "Spare slot"}"
+      title="Channel ${channelNumber}"
     >
-      <span class="channel-number">${isActive ? channelNumber : ""}</span>
+      <span class="channel-number">${channelNumber}</span>
       <strong>${escapeHtml(battery || (reservation ? owner : ""))}</strong>
       <em>${escapeHtml(battery && owner ? owner : "")}</em>
     </button>
   `;
 }
 
-function handleChannelClick(channelNumber) {
+function handleChannelClick(event, channelNumber) {
   saveProfile();
-  state.selectedChannels.has(channelNumber)
-    ? state.selectedChannels.delete(channelNumber)
-    : state.selectedChannels.add(channelNumber);
+  const rangeSelect = event.shiftKey && state.lastSelectedChannel;
+  const toggleSelect = event.ctrlKey || event.metaKey;
+  const channels = rangeSelect
+    ? channelsBetween(state.lastSelectedChannel, channelNumber)
+    : [channelNumber];
 
-  const reservation = findReservation(channelNumber);
-  if (!reservation) {
-    reserveChannels([channelNumber]);
-  } else if (reservation.owner === state.profile.name && reservation.color !== state.profile.color) {
-    reservation.color = state.profile.color;
-    saveReservations();
+  if (!toggleSelect && !rangeSelect) {
+    state.selectedChannels.clear();
   }
+
+  channels.forEach((currentChannel) => {
+    if (toggleSelect && state.selectedChannels.has(currentChannel)) {
+      state.selectedChannels.delete(currentChannel);
+      return;
+    }
+    state.selectedChannels.add(currentChannel);
+  });
+
+  reserveChannels(channels.filter((currentChannel) => !findReservation(currentChannel)));
+  state.lastSelectedChannel = channelNumber;
 
   syncSelectionInputs();
   renderReservations();
+}
+
+function channelsBetween(start, end) {
+  const min = Math.max(1, Math.min(start, end));
+  const max = Math.min(ACTIVE_CHANNELS, Math.max(start, end));
+  return Array.from({ length: max - min + 1 }, (_, index) => min + index);
 }
 
 function reserveChannels(channelNumbers) {
@@ -218,8 +268,9 @@ function reserveChannels(channelNumbers) {
       owner: state.profile.name,
       color: state.profile.color,
       battery: "",
+      activeMass: "",
       notes: "",
-      reservedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
   });
   saveReservations();
@@ -233,9 +284,11 @@ function applySelectedChannelDetails() {
   selected.forEach((channelNumber) => {
     const reservation = findReservation(channelNumber);
     reservation.battery = el.batteryNameInput.value.trim();
+    reservation.activeMass = el.activeMassInput.value.trim();
     reservation.notes = el.channelDetailsInput.value.trim();
     reservation.owner = state.profile.name;
     reservation.color = state.profile.color;
+    reservation.createdAt ||= new Date().toISOString();
   });
   saveReservations();
   renderReservations();
@@ -247,6 +300,7 @@ function releaseSelectedChannels() {
   state.reservations = state.reservations.filter((item) => !selected.has(item.channelNumber));
   state.selectedChannels.clear();
   el.batteryNameInput.value = "";
+  el.activeMassInput.value = "";
   el.channelDetailsInput.value = "";
   saveReservations();
   renderReservations();
@@ -260,8 +314,10 @@ function syncSelectionInputs() {
 
   const selectedReservations = selected.map(findReservation).filter(Boolean);
   const commonBattery = sharedValue(selectedReservations, "battery");
+  const commonMass = sharedValue(selectedReservations, "activeMass");
   const commonNotes = sharedValue(selectedReservations, "notes");
   el.batteryNameInput.value = commonBattery || "";
+  el.activeMassInput.value = commonMass || "";
   el.channelDetailsInput.value = commonNotes || "";
 }
 
@@ -275,9 +331,57 @@ function findReservation(channelNumber) {
   return state.reservations.find((item) => item.channelNumber === channelNumber);
 }
 
+function openChannelDetails(channelNumber) {
+  const reservation = findReservation(channelNumber);
+  state.openChannel = channelNumber;
+  el.detailPanel.innerHTML = channelDetailHtml(channelNumber, reservation);
+  el.detailPanel.querySelector("[data-close-detail]").addEventListener("click", closeChannelDetails);
+  el.channelDetailOverlay.hidden = false;
+  window.requestAnimationFrame(() => {
+    el.channelDetailOverlay.classList.add("open");
+  });
+}
+
+function closeChannelDetails() {
+  if (el.channelDetailOverlay.hidden) return;
+  el.channelDetailOverlay.classList.remove("open");
+  window.setTimeout(() => {
+    el.channelDetailOverlay.hidden = true;
+    el.detailPanel.innerHTML = "";
+    state.openChannel = null;
+  }, 220);
+}
+
+function channelDetailHtml(channelNumber, reservation) {
+  const color = reservation?.color || "#ffffff";
+  return `
+    <div class="detail-header" style="--channel-color: ${escapeHtml(color)}">
+      <div>
+        <p class="eyebrow">Neware channel</p>
+        <h2>Channel ${channelNumber}</h2>
+      </div>
+      <button class="icon-button" data-close-detail title="Close">x</button>
+    </div>
+    <div class="detail-grid">
+      ${detailItem("Battery", reservation?.battery || "No battery name")}
+      ${detailItem("Reserved by", reservation?.owner || "Available")}
+      ${detailItem("Created", reservation?.createdAt ? formatFullDateTime(reservation.createdAt) : "-")}
+      ${detailItem("Active mass", reservation?.activeMass || "-")}
+    </div>
+    <div class="detail-notes">
+      <span>Details</span>
+      <p>${escapeHtml(reservation?.notes || "No details added yet.")}</p>
+    </div>
+  `;
+}
+
+function detailItem(label, value) {
+  return `<div class="detail-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
 function exportReservations() {
   const rows = [
-    ["Channel", "Owner", "Color", "Battery", "Notes", "Reserved At"],
+    ["Channel", "Owner", "Color", "Battery", "Active Mass", "Notes", "Created At"],
     ...state.reservations
       .slice()
       .sort((a, b) => a.channelNumber - b.channelNumber)
@@ -286,8 +390,9 @@ function exportReservations() {
         item.owner,
         item.color,
         item.battery,
+        item.activeMass,
         item.notes,
-        item.reservedAt,
+        item.createdAt || item.reservedAt,
       ]),
   ];
   downloadText("batbat_channel_reservations.csv", toCsv(rows));
@@ -1005,6 +1110,18 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString([], {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatFullDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",

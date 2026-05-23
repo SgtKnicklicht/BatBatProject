@@ -4,7 +4,7 @@ BatBat is a static GitHub Pages toolkit for battery-lab workflows: a battery cal
 
 ## Current modules
 
-- **Channels**: browser-local 8 x 6 Neware reservation board with 40 active channels, team profiles, color reservations, multi-select editing, and CSV export.
+- **Channels**: browser-local 5 x 8 Neware reservation board with 40 channels, member dropdown reservations, shift/control multi-select editing, double-click details, and CSV export.
 - **BatBat Plot**: import Neware `.xlsx`, `.csv`, and `.tsv` files, choose sheets and columns, plot data, and export selected plot tables.
 - **Converter**: inspect detected workbook sheets and export normalized CSV tables for Origin.
 - **Report**: generate a compact sample or batch report with BatBat plots, source summaries, and print-to-PDF output.
