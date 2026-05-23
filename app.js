@@ -1,8 +1,8 @@
 const STORAGE_KEY = "batbat.reservations.v2";
 const PROFILE_KEY = "batbat.profile.v1";
 const VIEW_KEY = "batbat.activeView.v1";
-const CHANNEL_COLUMNS = 5;
-const CHANNEL_ROWS = 8;
+const CHANNEL_COLUMNS = 8;
+const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
 const TEAM_MEMBERS = [
   { id: "tom", name: "Tom", color: "#0d8f7a" },
@@ -153,6 +153,12 @@ function activeMember(memberId = state.profile.memberId) {
   return TEAM_MEMBERS.find((member) => member.id === memberId) || TEAM_MEMBERS[0];
 }
 
+function channelLabel(channelNumber) {
+  const row = Math.floor((channelNumber - 1) / CHANNEL_COLUMNS) + 1;
+  const column = ((channelNumber - 1) % CHANNEL_COLUMNS) + 1;
+  return `${row}-${column}`;
+}
+
 function bindReservations() {
   el.exportReservationsBtn.addEventListener("click", exportReservations);
   el.clearSelectionBtn.addEventListener("click", () => {
@@ -205,6 +211,7 @@ function renderReservations() {
 }
 
 function channelSquare(channelNumber, reservation, isSelected) {
+  const label = channelLabel(channelNumber);
   const color = reservation?.color || "#ffffff";
   const owner = reservation?.owner || "";
   const battery = reservation?.battery || "";
@@ -221,9 +228,9 @@ function channelSquare(channelNumber, reservation, isSelected) {
       class="${classes}"
       data-channel="${channelNumber}"
       style="--channel-color: ${escapeHtml(color)}"
-      title="Channel ${channelNumber}"
+      title="Channel ${label}"
     >
-      <span class="channel-number">${channelNumber}</span>
+      <span class="channel-number">${label}</span>
       <strong>${escapeHtml(battery || (reservation ? owner : ""))}</strong>
       <em>${escapeHtml(battery && owner ? owner : "")}</em>
     </button>
@@ -296,7 +303,7 @@ function closeChannelMenu() {
 function channelMenuHtml(channelNumber, reservation, targetCount) {
   return `
     <div class="menu-title">
-      <strong>Channel ${channelNumber}</strong>
+      <strong>Channel ${channelLabel(channelNumber)}</strong>
       <span>${targetCount > 1 ? `${targetCount} selected` : reservation ? "Reserved" : "Available"}</span>
     </div>
     <div class="menu-section">
@@ -420,7 +427,7 @@ function releaseSelectedChannels() {
 function syncSelectionInputs() {
   const selected = [...state.selectedChannels].sort((a, b) => a - b);
   el.selectedChannelsText.textContent = selected.length
-    ? `${selected.length} selected: ${selected.map((channel) => `Ch ${channel}`).join(", ")}`
+    ? `${selected.length} selected: ${selected.map((channel) => `Ch ${channelLabel(channel)}`).join(", ")}`
     : "No channels selected";
 
   const selectedReservations = selected.map(findReservation).filter(Boolean);
@@ -469,7 +476,7 @@ function channelDetailHtml(channelNumber, reservation) {
     <div class="detail-header" style="--channel-color: ${escapeHtml(color)}">
       <div>
         <p class="eyebrow">Neware channel</p>
-        <h2>Channel ${channelNumber}</h2>
+        <h2>Channel ${channelLabel(channelNumber)}</h2>
       </div>
       <button class="icon-button" data-close-detail title="Close">x</button>
     </div>
@@ -497,7 +504,7 @@ function exportReservations() {
       .slice()
       .sort((a, b) => a.channelNumber - b.channelNumber)
       .map((item) => [
-        item.channelNumber,
+        channelLabel(item.channelNumber),
         item.owner,
         item.color,
         item.battery,
@@ -763,6 +770,7 @@ function renderPlot() {
     colorway: ["#0d8f7a", "#f05d48", "#6e56cf", "#e7b10a", "#17211d"],
   }, { responsive: true, displaylogo: false });
 
+  attachMiddleAutoscale(el.plotCanvas);
   renderStats(table, dataset);
 }
 
@@ -788,7 +796,40 @@ function renderEmptyPlot() {
       yaxis: { visible: false },
       margin: { t: 20, r: 20, b: 20, l: 20 },
     }, { responsive: true, displaylogo: false });
+    attachMiddleAutoscale(el.plotCanvas);
   }
+}
+
+function attachMiddleAutoscale(node) {
+  if (!node || node.dataset.middleAutoscaleBound) return;
+  node.dataset.middleAutoscaleBound = "true";
+
+  node.addEventListener("mousedown", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
+
+  node.addEventListener("auxclick", (event) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    autoscalePlot(node);
+  });
+}
+
+function autoscalePlot(node) {
+  if (!window.Plotly || !node?.data) return;
+  const axisUpdate = {};
+  Object.keys(node.layout || {}).forEach((key) => {
+    if (/^[xy]axis\d*$/.test(key)) {
+      axisUpdate[`${key}.autorange`] = true;
+    }
+  });
+
+  if (!Object.keys(axisUpdate).length) {
+    axisUpdate["xaxis.autorange"] = true;
+    axisUpdate["yaxis.autorange"] = true;
+  }
+
+  Plotly.relayout(node, axisUpdate);
 }
 
 function renderStats(table, dataset) {
@@ -1018,6 +1059,7 @@ function renderReportCharts(chartSpecs) {
       },
       { responsive: true, displayModeBar: false },
     );
+    attachMiddleAutoscale(node);
   });
 }
 

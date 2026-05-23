@@ -22,7 +22,8 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
   background:
     linear-gradient(120deg, rgba(13, 143, 122, 0.12), transparent 32%),
     linear-gradient(210deg, rgba(231, 177, 10, 0.16), transparent 36%),
@@ -45,13 +46,13 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   padding: 22px;
   border-right: 1px solid rgba(23, 33, 29, 0.08);
   background: rgba(252, 254, 249, 0.78);
@@ -147,7 +148,7 @@ button {
 
 .workspace {
   min-width: 0;
-  padding: 24px clamp(18px, 4vw, 54px);
+  padding: clamp(16px, 2.4vh, 24px) clamp(18px, 4vw, 54px);
 }
 
 .view {
@@ -164,7 +165,7 @@ button {
   align-items: end;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 h1,
@@ -175,7 +176,7 @@ p {
 
 h1 {
   margin-top: 4px;
-  font-size: clamp(2rem, 4.5vw, 4rem);
+  font-size: clamp(2rem, 4.1vw, 3.75rem);
   line-height: 0.95;
   letter-spacing: 0;
 }
@@ -287,7 +288,7 @@ textarea:focus {
 .reservation-layout {
   display: grid;
   grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
-  gap: 18px;
+  gap: 16px;
   align-items: start;
 }
 
@@ -332,7 +333,7 @@ textarea:focus {
 }
 
 .channel-board-shell {
-  padding: 16px;
+  padding: clamp(12px, 1.6vw, 16px);
 }
 
 .channel-board-labels {
@@ -351,12 +352,12 @@ textarea:focus {
 }
 
 .channel-grid {
-  --channel-size: clamp(48px, calc((100vh - 360px) / 8), 64px);
+  --channel-size: clamp(48px, min(calc((100dvh - 250px) / 5), calc((100vw - 680px) / 8)), 66px);
   display: grid;
-  grid-template-columns: repeat(5, var(--channel-size));
-  grid-template-rows: repeat(8, var(--channel-size));
+  grid-template-columns: repeat(8, var(--channel-size));
+  grid-template-rows: repeat(5, var(--channel-size));
   justify-content: center;
-  gap: clamp(6px, 0.8vw, 10px);
+  gap: clamp(6px, 0.65vw, 10px);
 }
 
 .channel-square {
@@ -744,7 +745,7 @@ textarea:focus {
 
 .plot-canvas {
   width: 100%;
-  min-height: 560px;
+  min-height: clamp(360px, calc(100dvh - 260px), 560px);
 }
 
 .converter-grid {
@@ -1183,8 +1184,8 @@ dialog::backdrop {
   }
 
   .channel-grid {
-    --channel-size: clamp(48px, calc((100vw - 64px) / 5), 64px);
-    grid-template-columns: repeat(5, var(--channel-size));
+    --channel-size: clamp(34px, calc((100vw - 64px) / 8), 52px);
+    grid-template-columns: repeat(8, var(--channel-size));
     grid-template-rows: none;
   }
 
