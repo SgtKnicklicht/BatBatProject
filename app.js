@@ -91,6 +91,13 @@ const el = {
   exportPlotBtn: document.querySelector("#exportPlotBtn"),
   exportSelectedCsvBtn: document.querySelector("#exportSelectedCsvBtn"),
   exportWorkbookZipBtn: document.querySelector("#exportWorkbookZipBtn"),
+  generateReportBtn: document.querySelector("#generateReportBtn"),
+  printReportBtn: document.querySelector("#printReportBtn"),
+  reportSampleInput: document.querySelector("#reportSampleInput"),
+  reportBatchInput: document.querySelector("#reportBatchInput"),
+  reportGraphLimit: document.querySelector("#reportGraphLimit"),
+  reportNotesInput: document.querySelector("#reportNotesInput"),
+  reportSheet: document.querySelector("#reportSheet"),
   previewTable: document.querySelector("#previewTable"),
   schemaList: document.querySelector("#schemaList"),
   massInput: document.querySelector("#massInput"),
@@ -105,6 +112,7 @@ function boot() {
   bindNavigation();
   bindReservations();
   bindFiles();
+  bindReports();
   bindCalculator();
   renderReservations();
   renderEmptyPlot();
@@ -304,8 +312,16 @@ function bindFiles() {
   el.exportWorkbookZipBtn.addEventListener("click", exportAllCsv);
 }
 
+function bindReports() {
+  el.generateReportBtn.addEventListener("click", generateReport);
+  el.printReportBtn.addEventListener("click", () => {
+    generateReport();
+    window.setTimeout(() => window.print(), 450);
+  });
+}
+
 async function handleFiles(files) {
-  const usable = files.filter((file) => /\.(xlsx|xls|csv|tsv)$/i.test(file.name));
+  const usable = files.filter((file) => /\.(xlsx|xls|csv|tsv|txt)$/i.test(file.name));
   if (!usable.length) return;
 
   const parsed = [];
@@ -313,8 +329,9 @@ async function handleFiles(files) {
     parsed.push(await parseFile(file));
   }
   state.datasets.push(...parsed);
-  state.selectedDatasetId = parsed[0].id;
-  state.selectedSheet = preferredSheetName(parsed[0]);
+  const firstPlottable = parsed.find((dataset) => Object.keys(dataset.sheets).length) || parsed[0];
+  state.selectedDatasetId = firstPlottable.id;
+  state.selectedSheet = preferredSheetName(firstPlottable);
   updateSessionSummary();
   renderDatasetControls();
   switchView("plot");
@@ -323,14 +340,26 @@ async function handleFiles(files) {
 async function parseFile(file) {
   const extension = file.name.split(".").pop().toLowerCase();
   const id = crypto.randomUUID();
-  if (extension === "csv" || extension === "tsv") {
+  if (extension === "txt") {
     const text = await file.text();
-    const delimiter = extension === "tsv" ? "\t" : detectDelimiter(text);
     return {
       id,
       name: file.name,
+      kind: "metadata",
+      metadata: parseNotes(text),
+      sheets: {},
+    };
+  }
+  if (extension === "csv" || extension === "tsv") {
+    const text = await file.text();
+    const delimiter = extension === "tsv" ? "\t" : detectDelimiter(text);
+    const table = normalizeRows(parseDelimited(text, delimiter));
+    return {
+      id,
+      name: file.name,
+      kind: inferDatasetKind(file.name, { data: table }),
       sheets: {
-        data: normalizeRows(parseDelimited(text, delimiter)),
+        data: table,
       },
     };
   }
@@ -344,7 +373,7 @@ async function parseFile(file) {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
     sheets[name] = normalizeRows(rows);
   });
-  return { id, name: file.name, sheets };
+  return { id, name: file.name, kind: inferDatasetKind(file.name, sheets), sheets };
 }
 
 function repairSheetRange(sheet) {
@@ -392,6 +421,25 @@ function normalizeValue(value) {
   return text;
 }
 
+function inferDatasetKind(name, sheets) {
+  const allHeaders = Object.values(sheets).flatMap((table) => table.headers || []);
+  if (allHeaders.includes("Working Electrode (V)") || allHeaders.includes("Current Density (A/m^2)")) {
+    return "squidstat";
+  }
+  if (allHeaders.includes("DataPoint") || allHeaders.includes("Cycle Index")) {
+    return "neware";
+  }
+  return /\.(csv|tsv)$/i.test(name) ? "table" : "workbook";
+}
+
+function parseNotes(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { Notes: text.slice(0, 4000) };
+  }
+}
+
 function renderDatasetControls() {
   el.datasetSelect.innerHTML = state.datasets
     .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)}</option>`)
@@ -415,18 +463,29 @@ function renderDatasetControls() {
 }
 
 function renderColumnControls() {
+  const dataset = getSelectedDataset();
   const table = getSelectedTable();
   const headers = table?.headers || [];
   const options = headers.map((header) => `<option value="${escapeHtml(header)}">${escapeHtml(header)}</option>`);
   el.xColumnSelect.innerHTML = options.join("");
   el.yColumnSelect.innerHTML = options.join("");
 
-  const preferredX = pickColumn(headers, ["Cycle Index", "Total Time", "Time", "Date", "DataPoint"]) || headers[0];
-  const preferredY =
-    pickColumn(headers, ["Voltage(V)", "DChg. Cap.(Ah)", "Capacity(Ah)", "Current(A)"]) || headers[1];
+  const xCandidates =
+    dataset?.kind === "squidstat"
+      ? ["Working Electrode (V)", "Elapsed Time (s)", "Cycle"]
+      : ["Cycle Index", "Total Time", "Time", "Date", "DataPoint"];
+  const yCandidates =
+    dataset?.kind === "squidstat"
+      ? ["Current (A)", "|Current| (A)", "Cumulative Charge (mAh)"]
+      : ["Voltage(V)", "DChg. Cap.(Ah)", "Capacity(Ah)", "Current(A)"];
+  const preferredX = pickColumn(headers, xCandidates) || headers[0];
+  const preferredY = pickColumn(headers, yCandidates) || headers[1];
   el.xColumnSelect.value = preferredX || "";
   [...el.yColumnSelect.options].forEach((option) => {
-    option.selected = option.value === preferredY || option.value === "Current(A)";
+    option.selected =
+      option.value === preferredY ||
+      option.value === "Current(A)" ||
+      (dataset?.kind === "squidstat" && option.value === "Cumulative Charge (mAh)");
   });
 }
 
@@ -523,7 +582,7 @@ function renderSchema() {
         </div>
       `;
     })
-    .join("");
+    .join("") || `<div class="schema-item"><strong>${escapeHtml(dataset.name)}</strong><span>Metadata file</span></div>`;
 }
 
 function renderPreview() {
@@ -538,6 +597,218 @@ function renderPreview() {
     .map((row) => `<tr>${table.headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`)
     .join("");
   el.previewTable.innerHTML = `<thead><tr>${headers}</tr></thead><tbody>${rows}</tbody>`;
+}
+
+function generateReport() {
+  const dataSets = state.datasets.filter((dataset) => Object.keys(dataset.sheets).length);
+  const metaSets = state.datasets.filter((dataset) => dataset.kind === "metadata");
+  if (!dataSets.length) {
+    el.reportSheet.innerHTML = `
+      <div class="report-empty">
+        <strong>No plottable data loaded</strong>
+        <span>Drop Neware or Squidstat files into BatBat Plot first.</span>
+      </div>
+    `;
+    switchView("report");
+    return;
+  }
+
+  const graphLimit = Number(el.reportGraphLimit.value) || 4;
+  const chartSpecs = buildReportChartSpecs(dataSets).slice(0, graphLimit);
+  const totalRows = dataSets.reduce((sum, dataset) => {
+    return sum + Object.values(dataset.sheets).reduce((inner, table) => inner + table.rowCount, 0);
+  }, 0);
+  const sheetCount = dataSets.reduce((sum, dataset) => sum + Object.keys(dataset.sheets).length, 0);
+  const metadata = summarizeMetadata(metaSets);
+  const sample = el.reportSampleInput.value.trim() || "Battery sample report";
+  const batch = el.reportBatchInput.value.trim() || "Batch not specified";
+  const notes = el.reportNotesInput.value.trim() || metadata.notes || "No report notes entered.";
+
+  el.reportSheet.innerHTML = `
+    <header class="report-cover">
+      <div>
+        <p class="eyebrow">BatBat report</p>
+        <h2>${escapeHtml(sample)}</h2>
+      </div>
+      <div class="report-meta">
+        <div><span>Batch</span><strong>${escapeHtml(batch)}</strong></div>
+        <div><span>Generated</span><strong>${escapeHtml(new Date().toLocaleString())}</strong></div>
+        <div><span>Sources</span><strong>${dataSets.length} file(s)</strong></div>
+      </div>
+    </header>
+
+    <section class="report-kpis">
+      ${reportKpi("Rows", totalRows.toLocaleString())}
+      ${reportKpi("Tables", sheetCount)}
+      ${reportKpi("Graphs", chartSpecs.length)}
+      ${reportKpi("Instrument", metadata.instrument || detectInstrumentLabel(dataSets))}
+    </section>
+
+    <section class="report-note">${escapeHtml(notes)}</section>
+
+    <section class="report-charts">
+      ${chartSpecs.map((spec, index) => reportChartCard(spec, index)).join("")}
+    </section>
+
+    <section class="report-data">
+      <div class="report-section-title">Data summary</div>
+      ${dataSets.map(reportDataRow).join("")}
+    </section>
+  `;
+
+  switchView("report");
+  window.setTimeout(() => renderReportCharts(chartSpecs), 60);
+}
+
+function reportKpi(label, value) {
+  return `<div class="report-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function reportChartCard(spec, index) {
+  return `
+    <div class="report-chart-card">
+      <div class="report-chart-title">
+        <strong>${escapeHtml(spec.title)}</strong>
+        <span>${escapeHtml(spec.dataset)}</span>
+      </div>
+      <div class="report-chart" id="reportChart${index}"></div>
+    </div>
+  `;
+}
+
+function reportDataRow(dataset) {
+  const rows = Object.values(dataset.sheets).reduce((sum, table) => sum + table.rowCount, 0);
+  const sheets = Object.keys(dataset.sheets).join(", ");
+  return `
+    <div class="report-data-row">
+      <span>${escapeHtml(dataset.name)}</span>
+      <strong>${rows.toLocaleString()} rows - ${escapeHtml(sheets)}</strong>
+    </div>
+  `;
+}
+
+function buildReportChartSpecs(dataSets) {
+  return dataSets.flatMap((dataset) => {
+    if (dataset.kind === "squidstat") return squidstatReportSpecs(dataset);
+    if (dataset.kind === "neware") return newareReportSpecs(dataset);
+    return genericReportSpecs(dataset);
+  }).filter((spec) => spec.yColumns.length);
+}
+
+function squidstatReportSpecs(dataset) {
+  const table = Object.values(dataset.sheets)[0];
+  if (!table) return [];
+  const specs = [];
+  if (hasColumns(table, ["Working Electrode (V)", "Current (A)"])) {
+    specs.push(chartSpec(dataset, "data", table, "Working Electrode (V)", ["Current (A)"], "CV current response"));
+  }
+  if (hasColumns(table, ["Elapsed Time (s)", "Working Electrode (V)"])) {
+    specs.push(chartSpec(dataset, "data", table, "Elapsed Time (s)", ["Working Electrode (V)"], "Potential over time"));
+  }
+  if (hasColumns(table, ["Elapsed Time (s)", "Cumulative Charge (mAh)"])) {
+    specs.push(chartSpec(dataset, "data", table, "Elapsed Time (s)", ["Cumulative Charge (mAh)"], "Cumulative charge"));
+  }
+  return specs;
+}
+
+function newareReportSpecs(dataset) {
+  const specs = [];
+  const cycle = dataset.sheets.cycle;
+  const record = dataset.sheets.record;
+  if (cycle && hasColumns(cycle, ["Cycle Index", "DChg. Cap.(Ah)"])) {
+    specs.push(chartSpec(dataset, "cycle", cycle, "Cycle Index", ["DChg. Cap.(Ah)", "Chg. Cap.(Ah)"], "Capacity retention"));
+  }
+  if (cycle && hasColumns(cycle, ["Cycle Index", "Chg.-DChg. Eff(%)"])) {
+    specs.push(chartSpec(dataset, "cycle", cycle, "Cycle Index", ["Chg.-DChg. Eff(%)"], "Coulombic efficiency"));
+  }
+  if (record && hasColumns(record, ["DataPoint", "Voltage(V)"])) {
+    specs.push(chartSpec(dataset, "record", record, "DataPoint", ["Voltage(V)"], "Voltage trace"));
+  }
+  if (record && hasColumns(record, ["DataPoint", "Current(A)"])) {
+    specs.push(chartSpec(dataset, "record", record, "DataPoint", ["Current(A)"], "Current trace"));
+  }
+  return specs;
+}
+
+function genericReportSpecs(dataset) {
+  return Object.entries(dataset.sheets).flatMap(([sheetName, table]) => {
+    const numeric = table.headers.filter((header) => table.rows.some((row) => typeof row[header] === "number"));
+    if (numeric.length < 2) return [];
+    return [chartSpec(dataset, sheetName, table, numeric[0], [numeric[1]], `${sheetName} overview`)];
+  });
+}
+
+function chartSpec(dataset, sheetName, table, xColumn, yColumns, title) {
+  return {
+    dataset: dataset.name,
+    sheetName,
+    title,
+    xColumn,
+    yColumns: yColumns.filter((column) => table.headers.includes(column)),
+    rows: downsampleRows(table.rows, 900),
+  };
+}
+
+function renderReportCharts(chartSpecs) {
+  if (!window.Plotly) return;
+  chartSpecs.forEach((spec, index) => {
+    const node = document.querySelector(`#reportChart${index}`);
+    if (!node) return;
+    const traces = spec.yColumns.map((column) => ({
+      x: spec.rows.map((row) => row[spec.xColumn]),
+      y: spec.rows.map((row) => row[column]),
+      type: "scatter",
+      mode: spec.title.includes("CV") ? "lines" : "lines+markers",
+      name: column,
+      line: { width: 2 },
+      marker: { size: 3 },
+    }));
+    Plotly.react(
+      node,
+      traces,
+      {
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "#ffffff",
+        margin: { t: 8, r: 10, b: 42, l: 54 },
+        xaxis: { title: spec.xColumn, gridcolor: "#e6eee8", zerolinecolor: "#d7e0da" },
+        yaxis: { title: spec.yColumns.join(", "), gridcolor: "#e6eee8", zerolinecolor: "#d7e0da" },
+        showlegend: spec.yColumns.length > 1,
+        colorway: ["#0d8f7a", "#f05d48", "#6e56cf", "#e7b10a"],
+      },
+      { responsive: true, displayModeBar: false },
+    );
+  });
+}
+
+function downsampleRows(rows, maxRows) {
+  if (rows.length <= maxRows) return rows;
+  const step = Math.ceil(rows.length / maxRows);
+  return rows.filter((_, index) => index % step === 0);
+}
+
+function hasColumns(table, columns) {
+  return columns.every((column) => table.headers.includes(column));
+}
+
+function summarizeMetadata(metaSets) {
+  const metadata = metaSets.map((dataset) => dataset.metadata);
+  const first = metadata[0] || {};
+  const application = first["Application Metadata"] || {};
+  const userNotes = first["User Notes and Settings"] || {};
+  return {
+    instrument: application["Device Name"]
+      ? `${application["Device Name"]} ch${application.Channel || ""}`.trim()
+      : "",
+    notes: userNotes.Notes || first.Notes || "",
+  };
+}
+
+function detectInstrumentLabel(dataSets) {
+  const kinds = new Set(dataSets.map((dataset) => dataset.kind));
+  if (kinds.has("squidstat") && kinds.has("neware")) return "Mixed";
+  if (kinds.has("squidstat")) return "Squidstat";
+  if (kinds.has("neware")) return "Neware";
+  return "Data";
 }
 
 function getSelectedDataset() {

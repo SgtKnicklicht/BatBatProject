@@ -31,6 +31,10 @@
             <span class="icon">&lt;&gt;</span>
             Converter
           </button>
+          <button class="nav-tab" data-view="report">
+            <span class="icon">[]</span>
+            Report
+          </button>
           <button class="nav-tab" data-view="calculator">
             <span class="icon">f</span>
             Calculator
@@ -103,9 +107,9 @@
           <div class="plot-layout">
             <div class="tool-panel">
               <label class="drop-zone" id="dropZone">
-                <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.tsv" multiple />
+                <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" multiple />
                 <strong>Drop data files</strong>
-                <span>Neware .xlsx, CSV, or TSV</span>
+                <span>Neware, Squidstat, CSV, TSV, or notes</span>
               </label>
 
               <label>
@@ -161,6 +165,57 @@
               <h2>Detected tables</h2>
               <div id="schemaList"></div>
             </div>
+          </div>
+        </section>
+
+        <section class="view" id="report">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Batch report</p>
+              <h1>Build a compact sample report</h1>
+            </div>
+            <div class="action-row">
+              <button class="ghost-button" id="printReportBtn" title="Print or save report as PDF">
+                <span>p</span>
+                Print
+              </button>
+              <button class="primary-button" id="generateReportBtn" title="Generate report">
+                <span>+</span>
+                Generate
+              </button>
+            </div>
+          </header>
+
+          <div class="report-layout">
+            <div class="tool-panel">
+              <label>
+                Sample
+                <input id="reportSampleInput" placeholder="TS Graphite batch" />
+              </label>
+              <label>
+                Batch
+                <input id="reportBatchInput" placeholder="Graphite batch" />
+              </label>
+              <label>
+                Graph limit
+                <select id="reportGraphLimit">
+                  <option value="4">4 graphs</option>
+                  <option value="6">6 graphs</option>
+                  <option value="8">8 graphs</option>
+                </select>
+              </label>
+              <label>
+                Notes
+                <textarea id="reportNotesInput" rows="5" placeholder="Electrode, electrolyte, protocol, observations"></textarea>
+              </label>
+            </div>
+
+            <article class="report-sheet" id="reportSheet">
+              <div class="report-empty">
+                <strong>No report generated</strong>
+                <span>Load data files, then generate a sample or batch report.</span>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -221,7 +276,7 @@
         </label>
         <label>
           Cell or sample
-          <input id="cellInput" required placeholder="TS-G4" />
+          <input id="cellInput" required placeholder="Cell A" />
         </label>
         <label>
           Owner

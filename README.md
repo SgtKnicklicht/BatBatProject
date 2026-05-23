@@ -7,6 +7,7 @@ BatBat is a static GitHub Pages toolkit for battery-lab workflows: a battery cal
 - **Channels**: browser-local reservation board for Neware battery channels.
 - **BatBat Plot**: import Neware `.xlsx`, `.csv`, and `.tsv` files, choose sheets and columns, plot data, and export selected plot tables.
 - **Converter**: inspect detected workbook sheets and export normalized CSV tables for Origin.
+- **Report**: generate a compact sample or batch report with BatBat plots, source summaries, and print-to-PDF output.
 - **Calculator**: quick active-material, capacity, and C-rate calculations.
 
 ## Data handling
@@ -14,6 +15,8 @@ BatBat is a static GitHub Pages toolkit for battery-lab workflows: a battery cal
 Files are parsed in the browser. The app does not upload battery data to a server.
 
 The Neware importer repairs worksheet ranges before parsing. This matters because some exported workbooks contain useful sheet data while their Excel dimension metadata incorrectly reports only `A1`.
+
+Squidstat CSV exports with semicolon delimiters and comma decimals are parsed in the browser as well. Optional experiment settings `.txt` files can be dropped in so reports can include instrument metadata.
 
 ## GitHub Pages
 

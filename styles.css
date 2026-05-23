@@ -234,6 +234,7 @@ h2 {
 .board-toolbar,
 .plot-layout,
 .converter-grid,
+.report-layout,
 .calculator-grid,
 .result-grid {
   display: grid;
@@ -494,6 +495,11 @@ textarea:focus {
   grid-template-columns: minmax(0, 1fr) 310px;
 }
 
+.report-layout {
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  align-items: start;
+}
+
 .data-table-wrap,
 .schema-panel {
   padding: 14px;
@@ -537,6 +543,154 @@ th {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #ffffff;
+}
+
+.report-sheet {
+  min-height: 820px;
+  padding: 20px;
+  border: 1px solid rgba(23, 33, 29, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.report-empty {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.report-empty strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+.report-cover {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.report-cover h2 {
+  margin-top: 6px;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.report-meta {
+  display: grid;
+  gap: 7px;
+  min-width: 220px;
+  font-size: 0.9rem;
+}
+
+.report-meta div,
+.report-data-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-meta span,
+.report-section-title,
+.report-data-row span:first-child {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.report-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.report-kpi {
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.report-kpi span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.report-kpi strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 1.05rem;
+}
+
+.report-note {
+  display: block;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: rgba(13, 143, 122, 0.08);
+  line-height: 1.45;
+}
+
+.report-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-chart-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.report-chart-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.report-chart-title span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.report-chart {
+  width: 100%;
+  height: 240px;
+}
+
+.report-data {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  break-inside: avoid;
+}
+
+.report-data-row {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+  font-size: 0.86rem;
 }
 
 .calculator-grid {
@@ -653,7 +807,7 @@ dialog::backdrop {
   }
 
   .nav-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .nav-tab {
@@ -666,6 +820,7 @@ dialog::backdrop {
 
   .plot-layout,
   .converter-grid,
+  .report-layout,
   .calculator-grid,
   .result-grid {
     grid-template-columns: 1fr;
@@ -698,5 +853,47 @@ dialog::backdrop {
 
   .dialog-card {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar,
+  .view:not(#report),
+  #report .view-header,
+  #report .tool-panel {
+    display: none !important;
+  }
+
+  .app-shell,
+  .workspace,
+  .report-layout {
+    display: block;
+    min-height: 0;
+    padding: 0;
+  }
+
+  #report {
+    display: block !important;
+  }
+
+  .report-sheet {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .report-chart {
+    height: 210px;
+  }
+
+  @page {
+    size: A4;
+    margin: 10mm;
   }
 }
