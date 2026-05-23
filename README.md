@@ -1,6 +1,6 @@
-# BatBat Project
+# BatBatProject
 
-BatBat is a static GitHub Pages toolkit for battery-lab workflows.
+BatBat is a static GitHub Pages toolkit for battery-lab workflows: a battery calculator, plotter, data converter, and channel reservation system.
 
 ## Current modules
 
