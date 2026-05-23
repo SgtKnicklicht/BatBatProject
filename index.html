@@ -240,42 +240,87 @@
           <header class="view-header">
             <div>
               <p class="eyebrow">BatBat Calculator</p>
-              <h1>Quick battery calculations</h1>
+              <h1>Electrode C-rate calculator</h1>
             </div>
           </header>
 
-          <div class="calculator-grid">
-            <label>
-              Active material mass
-              <div class="input-combo">
-                <input id="massInput" type="number" value="4.863" step="0.001" />
-                <span>mg</span>
+          <div class="calculator-shell">
+            <section class="calc-panel">
+              <div class="calc-panel-header">
+                <div>
+                  <p class="eyebrow">Inputs</p>
+                  <h2>One electrode</h2>
+                </div>
+                <select id="materialPresetSelect" title="Material preset">
+                  <option value="graphite">Graphite</option>
+                  <option value="nmc">NMC / layered oxide</option>
+                  <option value="lfp">LFP</option>
+                  <option value="custom">Custom</option>
+                </select>
               </div>
-            </label>
-            <label>
-              Capacity
-              <div class="input-combo">
-                <input id="capacityInput" type="number" value="0.0017719" step="0.000001" />
-                <span>Ah</span>
-              </div>
-            </label>
-            <label>
-              Current
-              <div class="input-combo">
-                <input id="currentInput" type="number" value="0.00009" step="0.000001" />
-                <span>A</span>
-              </div>
-            </label>
-            <label>
-              Nominal specific capacity
-              <div class="input-combo">
-                <input id="nominalInput" type="number" value="372" step="1" />
-                <span>mAh/g</span>
-              </div>
-            </label>
-          </div>
 
-          <div class="result-grid" id="calcResults"></div>
+              <div class="calc-grid">
+                <label>
+                  Gross electrode
+                  <div class="input-combo">
+                    <input id="grossMassInput" type="number" value="49.23" step="0.001" />
+                    <span>mg</span>
+                  </div>
+                </label>
+                <label>
+                  Empty collector
+                  <div class="input-combo">
+                    <input id="emptyMassInput" type="number" value="43.00" step="0.001" />
+                    <span>mg</span>
+                  </div>
+                </label>
+                <label>
+                  Disc diameter
+                  <div class="input-combo">
+                    <input id="diameterInput" type="number" value="15" step="0.1" />
+                    <span>mm</span>
+                  </div>
+                </label>
+                <label>
+                  Specific capacity
+                  <div class="input-combo">
+                    <input id="nominalInput" type="number" value="372" step="1" />
+                    <span>mAh/g</span>
+                  </div>
+                </label>
+              </div>
+
+              <div class="recipe-grid">
+                <label>
+                  AM
+                  <input id="recipeAmInput" type="number" value="80" step="0.1" />
+                </label>
+                <label>
+                  Carbon
+                  <input id="recipeCarbonInput" type="number" value="10" step="0.1" />
+                </label>
+                <label>
+                  Binder
+                  <input id="recipeBinderInput" type="number" value="10" step="0.1" />
+                </label>
+                <label>
+                  Extra
+                  <input id="recipeExtraInput" type="number" value="0" step="0.1" />
+                </label>
+              </div>
+            </section>
+
+            <section class="calc-results-panel">
+              <div class="result-grid" id="calcResults"></div>
+              <div class="rate-table-wrap">
+                <table id="rateTable"></table>
+              </div>
+              <div class="copy-line">
+                <input id="cyclerLineInput" readonly />
+                <button class="ghost-button" id="copyCyclerLineBtn" title="Copy cycler line">Copy</button>
+              </div>
+            </section>
+          </div>
         </section>
       </main>
     </div>

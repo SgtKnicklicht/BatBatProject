@@ -8,7 +8,7 @@ BatBat is a static GitHub Pages toolkit for battery-lab workflows: a battery cal
 - **BatBat Plot**: import Neware `.xlsx`, `.csv`, and `.tsv` files, choose sheets and columns, plot data, and export selected plot tables.
 - **Converter**: inspect detected workbook sheets and export normalized CSV tables for Origin.
 - **Report**: generate a compact sample or batch report with BatBat plots, source summaries, and print-to-PDF output.
-- **Calculator**: quick active-material, capacity, and C-rate calculations.
+- **Calculator**: focused electrode calculator for recipe AM fraction, coating mass, areal loading, 1C current, C-rate table, and cycler copy lines.
 
 ## Data handling
 

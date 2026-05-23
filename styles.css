@@ -235,7 +235,7 @@ h2 {
 .plot-layout,
 .converter-grid,
 .report-layout,
-.calculator-grid,
+.calculator-shell,
 .result-grid {
   display: grid;
   gap: 14px;
@@ -304,7 +304,8 @@ textarea:focus {
 .plot-stage,
 .schema-panel,
 .data-table-wrap,
-.calculator-grid label,
+.calc-panel,
+.calc-results-panel,
 .result-card {
   border: 1px solid rgba(23, 33, 29, 0.08);
   border-radius: var(--radius);
@@ -872,12 +873,50 @@ th {
   font-size: 0.86rem;
 }
 
-.calculator-grid {
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+.calculator-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: 14px;
+  align-items: start;
 }
 
-.calculator-grid label {
-  padding: 14px;
+.calc-panel,
+.calc-results-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.calc-panel-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.calc-panel-header select {
+  max-width: 220px;
+}
+
+.calc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.recipe-grid input {
+  text-align: center;
+  font-weight: 800;
 }
 
 .input-combo {
@@ -903,8 +942,7 @@ th {
 }
 
 .result-grid {
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
-  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .result-card {
@@ -921,7 +959,35 @@ th {
 .result-card strong {
   display: block;
   margin-top: 8px;
-  font-size: 1.45rem;
+  font-size: clamp(1.05rem, 2.4vw, 1.45rem);
+}
+
+.rate-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.rate-table-wrap table {
+  font-size: 0.9rem;
+}
+
+.rate-table-wrap td:last-child,
+.rate-table-wrap th:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.copy-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.copy-line input {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.86rem;
 }
 
 dialog {
@@ -1001,7 +1067,8 @@ dialog::backdrop {
   .converter-grid,
   .report-layout,
   .reservation-layout,
-  .calculator-grid,
+  .calculator-shell,
+  .calc-grid,
   .result-grid {
     grid-template-columns: 1fr;
   }
@@ -1056,6 +1123,17 @@ dialog::backdrop {
 
   .selection-actions {
     grid-template-columns: 1fr;
+  }
+
+  .recipe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .copy-line,
+  .calc-panel-header {
+    grid-template-columns: 1fr;
+    display: grid;
+    align-items: start;
   }
 }
 

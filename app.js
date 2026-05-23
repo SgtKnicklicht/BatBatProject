@@ -65,11 +65,19 @@ const el = {
   reportSheet: document.querySelector("#reportSheet"),
   previewTable: document.querySelector("#previewTable"),
   schemaList: document.querySelector("#schemaList"),
-  massInput: document.querySelector("#massInput"),
-  capacityInput: document.querySelector("#capacityInput"),
-  currentInput: document.querySelector("#currentInput"),
+  materialPresetSelect: document.querySelector("#materialPresetSelect"),
+  grossMassInput: document.querySelector("#grossMassInput"),
+  emptyMassInput: document.querySelector("#emptyMassInput"),
+  diameterInput: document.querySelector("#diameterInput"),
   nominalInput: document.querySelector("#nominalInput"),
+  recipeAmInput: document.querySelector("#recipeAmInput"),
+  recipeCarbonInput: document.querySelector("#recipeCarbonInput"),
+  recipeBinderInput: document.querySelector("#recipeBinderInput"),
+  recipeExtraInput: document.querySelector("#recipeExtraInput"),
   calcResults: document.querySelector("#calcResults"),
+  rateTable: document.querySelector("#rateTable"),
+  cyclerLineInput: document.querySelector("#cyclerLineInput"),
+  copyCyclerLineBtn: document.querySelector("#copyCyclerLineBtn"),
 };
 
 function boot() {
@@ -995,30 +1003,97 @@ function exportPlot() {
 }
 
 function bindCalculator() {
-  [el.massInput, el.capacityInput, el.currentInput, el.nominalInput].forEach((input) => {
+  [
+    el.grossMassInput,
+    el.emptyMassInput,
+    el.diameterInput,
+    el.nominalInput,
+    el.recipeAmInput,
+    el.recipeCarbonInput,
+    el.recipeBinderInput,
+    el.recipeExtraInput,
+  ].forEach((input) => {
     input.addEventListener("input", calculate);
+  });
+  el.materialPresetSelect.addEventListener("change", applyMaterialPreset);
+  el.copyCyclerLineBtn.addEventListener("click", async () => {
+    const text = el.cyclerLineInput.value;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      el.cyclerLineInput.select();
+    }
   });
 }
 
 function calculate() {
-  const massMg = Number(el.massInput.value);
-  const capacityAh = Number(el.capacityInput.value);
-  const currentA = Number(el.currentInput.value);
-  const nominal = Number(el.nominalInput.value);
-  const massG = massMg / 1000;
-  const capacityMah = capacityAh * 1000;
-  const specificCapacity = massG ? capacityMah / massG : 0;
-  const nominalCapacityAh = (nominal * massG) / 1000;
-  const cRate = nominalCapacityAh ? Math.abs(currentA) / nominalCapacityAh : 0;
+  const grossMass = readNumber(el.grossMassInput.value);
+  const emptyMass = readNumber(el.emptyMassInput.value);
+  const diameter = readNumber(el.diameterInput.value);
+  const nominal = readNumber(el.nominalInput.value);
+  const recipeAm = readNumber(el.recipeAmInput.value);
+  const recipeCarbon = readNumber(el.recipeCarbonInput.value);
+  const recipeBinder = readNumber(el.recipeBinderInput.value);
+  const recipeExtra = readNumber(el.recipeExtraInput.value);
+  const totalRecipe = recipeAm + recipeCarbon + recipeBinder + recipeExtra;
+  const amFraction = totalRecipe > 0 ? recipeAm / totalRecipe : 0;
+  const netMass = Math.max(grossMass - emptyMass, 0);
+  const activeMass = netMass * amFraction;
+  const area = diameter ? Math.PI * (diameter / 20) ** 2 : 0;
+  const loading = area ? activeMass / area : 0;
+  const oneC = (activeMass / 1000) * nominal;
+  const rates = [
+    ["C/20", 1 / 20],
+    ["C/10", 1 / 10],
+    ["C/5", 1 / 5],
+    ["C/2", 1 / 2],
+    ["1C", 1],
+    ["2C", 2],
+    ["5C", 5],
+  ];
 
   el.calcResults.innerHTML = [
-    ["Specific capacity", `${formatNumber(specificCapacity)} mAh/g`],
-    ["Capacity", `${formatNumber(capacityMah)} mAh`],
-    ["Nominal capacity", `${formatNumber(nominalCapacityAh * 1000)} mAh`],
-    ["C-rate", `${formatNumber(cRate)} C`],
+    ["AM fraction", `${formatPercent(amFraction)}`],
+    ["Net coating", `${formatNumber(netMass)} mg`],
+    ["AM mass", `${formatNumber(activeMass)} mg`],
+    ["Loading", `${formatNumber(loading)} mg/cm2`],
+    ["Area", `${formatNumber(area)} cm2`],
+    ["1C current", `${formatNumber(oneC)} mA`],
   ]
     .map(([label, value]) => `<div class="result-card"><span>${label}</span><strong>${value}</strong></div>`)
     .join("");
+
+  el.rateTable.innerHTML = `
+    <thead><tr><th>Rate</th><th>Current</th></tr></thead>
+    <tbody>
+      ${rates
+        .map(([label, factor]) => `<tr><td>${label}</td><td>${formatNumber(oneC * factor)} mA</td></tr>`)
+        .join("")}
+    </tbody>
+  `;
+  el.cyclerLineInput.value = [
+    `AM=${formatNumber(activeMass)} mg`,
+    `loading=${formatNumber(loading)} mg/cm2`,
+    `1C=${formatNumber(oneC)} mA`,
+    `C/10=${formatNumber(oneC / 10)} mA`,
+    `C/5=${formatNumber(oneC / 5)} mA`,
+    `C/2=${formatNumber(oneC / 2)} mA`,
+  ].join(" | ");
+}
+
+function applyMaterialPreset() {
+  const presets = {
+    graphite: { capacity: 372, collector: 43 },
+    nmc: { capacity: 180, collector: 43 },
+    lfp: { capacity: 160, collector: 43 },
+    custom: null,
+  };
+  const preset = presets[el.materialPresetSelect.value];
+  if (preset) {
+    el.nominalInput.value = preset.capacity;
+    el.emptyMassInput.value = preset.collector;
+  }
+  calculate();
 }
 
 function updateSessionSummary() {
@@ -1132,6 +1207,16 @@ function formatFullDateTime(value) {
 function formatNumber(value) {
   if (!Number.isFinite(value)) return "0";
   return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 5 }).format(value);
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(value)) return "0%";
+  return new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 2 }).format(value);
+}
+
+function readNumber(value) {
+  const number = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(number) ? number : 0;
 }
 
 function escapeHtml(value) {
