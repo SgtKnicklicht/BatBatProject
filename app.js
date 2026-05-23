@@ -203,8 +203,8 @@ function renderReservations() {
     button.addEventListener("click", (event) => handleChannelClick(event, Number(button.dataset.channel)));
     button.addEventListener("dblclick", (event) => {
       event.preventDefault();
-      clearTimeout(state.clickTimer);
-      fastReserveChannel(Number(button.dataset.channel));
+      clearChannelClickTimer();
+      openChannelMenu(Number(button.dataset.channel), button);
     });
   });
   syncSelectionInputs();
@@ -240,12 +240,14 @@ function channelSquare(channelNumber, reservation, isSelected) {
 function handleChannelClick(event, channelNumber) {
   const rangeSelect = event.shiftKey && state.lastSelectedChannel;
   const toggleSelect = event.ctrlKey || event.metaKey;
-  clearTimeout(state.clickTimer);
+  clearChannelClickTimer();
 
   if (!rangeSelect && !toggleSelect) {
+    if (event.detail > 1) return;
     state.clickTimer = window.setTimeout(() => {
-      openChannelMenu(channelNumber, event.currentTarget);
-    }, 180);
+      state.clickTimer = null;
+      fastReserveChannel(channelNumber);
+    }, 320);
     return;
   }
 
@@ -265,6 +267,12 @@ function handleChannelClick(event, channelNumber) {
 
   syncSelectionInputs();
   renderReservations();
+}
+
+function clearChannelClickTimer() {
+  if (!state.clickTimer) return;
+  clearTimeout(state.clickTimer);
+  state.clickTimer = null;
 }
 
 function channelsBetween(start, end) {
@@ -318,7 +326,7 @@ function channelMenuHtml(channelNumber, reservation, targetCount) {
       ).join("")}
     </div>
     <button class="menu-button" data-action="details">Add details</button>
-    <button class="menu-button" data-action="view">Show reservation</button>
+    <button class="menu-button" data-action="view">${reservation ? "Show details" : "Open details"}</button>
     <button class="menu-button danger" data-action="free">Free channel${targetCount > 1 ? "s" : ""}</button>
   `;
 }
