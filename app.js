@@ -63,6 +63,7 @@ const state = {
   plotTheme: "light",
   plotFamily: "cv",
   plotMethod: "cv",
+  plot3d: false,
   plotAutoColor: true,
   plotColor: "#2563eb",
   plotLineWidth: 2.4,
@@ -117,6 +118,7 @@ const el = {
   plotMethodSelect: document.querySelector("#plotMethodSelect"),
   plotBatteryNameInput: document.querySelector("#plotBatteryNameInput"),
   plotActiveMassInput: document.querySelector("#plotActiveMassInput"),
+  plot3dToggleBtn: document.querySelector("#plot3dToggleBtn"),
   plotOverlayInput: document.querySelector("#plotOverlayInput"),
   plotAutoColorInput: document.querySelector("#plotAutoColorInput"),
   plotGradientSelect: document.querySelector("#plotGradientSelect"),
@@ -917,6 +919,11 @@ function bindFiles() {
   bindDecimalInput(el.plotActiveMassInput);
   el.plotBatteryNameInput.addEventListener("input", renderPlot);
   el.plotActiveMassInput.addEventListener("input", renderPlot);
+  el.plot3dToggleBtn.addEventListener("click", () => {
+    state.plot3d = !state.plot3d;
+    syncAdvancedPlotControls();
+    renderPlot();
+  });
   bindPlotStyleControls();
   el.plotMode.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1400,7 +1407,7 @@ function renderColumnControls() {
   el.xColumnSelect.innerHTML = options.join("");
   el.yColumnSelect.innerHTML = options.join("");
 
-  const preset = buildPlotPreset(table, dataset);
+  const preset = buildPlotPreset(table);
   const preferredX = preset?.xColumn || headers[0];
   const preferredY = preset?.yColumns?.[0] || headers[1];
   el.xColumnSelect.value = preferredX || "";
@@ -1424,8 +1431,17 @@ function renderPlot() {
     return;
   }
   const theme = plotThemeTokens();
+  const layout = plotSpec.is3d ? plot3dLayout(plotSpec, theme) : plot2dLayout(plotSpec, theme);
 
-  Plotly.react(el.plotCanvas, plotSpec.traces, {
+  Plotly.react(el.plotCanvas, plotSpec.traces, layout, { responsive: true, displaylogo: false });
+
+  attachMiddleAutoscale(el.plotCanvas);
+  resizePlotCanvas();
+  renderStats(table, dataset, plotSpec);
+}
+
+function plot2dLayout(plotSpec, theme) {
+  return {
     title: { text: plotSpec.title, x: 0.03 },
     paper_bgcolor: theme.paper,
     plot_bgcolor: theme.plot,
@@ -1444,11 +1460,36 @@ function renderPlot() {
       yanchor: "bottom",
     },
     colorway: plotMethodColors(),
-  }, { responsive: true, displaylogo: false });
+  };
+}
 
-  attachMiddleAutoscale(el.plotCanvas);
-  resizePlotCanvas();
-  renderStats(table, dataset, plotSpec);
+function plot3dLayout(plotSpec, theme) {
+  return {
+    title: { text: plotSpec.title, x: 0.03 },
+    paper_bgcolor: theme.paper,
+    plot_bgcolor: theme.plot,
+    font: { color: theme.text },
+    margin: { t: 62, r: 20, b: 22, l: 20 },
+    scene: {
+      bgcolor: theme.plot,
+      xaxis: plot3dAxisLayout(plotSpec.xTitle, theme),
+      yaxis: plot3dAxisLayout(plotSpec.yTitle, theme),
+      zaxis: plot3dAxisLayout(plotSpec.zTitle, theme),
+      camera: { eye: { x: 1.45, y: -1.75, z: 1.1 } },
+      aspectmode: "cube",
+    },
+    legend: {
+      bgcolor: theme.legend,
+      bordercolor: theme.axis,
+      borderwidth: 1,
+      font: { color: theme.text, size: 12 },
+      x: 1,
+      xanchor: "right",
+      y: 1,
+      yanchor: "top",
+    },
+    colorway: plotMethodColors(),
+  };
 }
 
 function renderPlotMessage(message) {
@@ -1503,7 +1544,7 @@ function resizePlotCanvas() {
   window.setTimeout(() => Plotly.Plots.resize(el.plotCanvas), 60);
 }
 
-function buildPlotPreset(table) {
+function buildPlotPreset(table, method = state.plotMethod) {
   if (!table?.headers?.length) return null;
   const headers = table.headers;
   const voltage = voltageColumn(headers);
@@ -1525,20 +1566,27 @@ function buildPlotPreset(table) {
     gitt: { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
   };
 
-  return presets[state.plotMethod] || {
+  return presets[method] || {
     xColumn: el.xColumnSelect.value || headers[0],
     yColumns: [...el.yColumnSelect.selectedOptions].map((option) => option.value),
     mode: state.plotMode,
   };
 }
 
+function buildPlotPresetForMethod(table, method) {
+  return buildPlotPreset(table, method);
+}
+
 function buildPlotSpec(table, dataset) {
   const method = state.plotMethod;
-  const preset = buildPlotPreset(table, dataset);
+  const preset = buildPlotPreset(table);
   if (!preset) {
     return { traces: [], message: "This file has no plottable table columns yet." };
   }
 
+  if (method === "cv" && state.plot3d) {
+    return buildCv3dSpec(dataset);
+  }
   if (method === "custom") {
     const xColumn = el.xColumnSelect.value;
     const yColumns = [...el.yColumnSelect.selectedOptions].map((option) => option.value);
@@ -1708,6 +1756,57 @@ function buildOverlayCvSpec(currentDataset) {
   };
 }
 
+function buildCv3dSpec(currentDataset) {
+  const massMg = plotActiveMassMg();
+  const candidates = (state.plotOverlayFiles ? datasetsForFamily("cv") : [currentDataset])
+    .map((dataset) => {
+      const table = tableForDatasetMethod(dataset, "cv");
+      const preset = buildPlotPresetForMethod(table, "cv");
+      return { dataset, table, preset };
+    })
+    .filter(({ table, preset }) => table?.rows?.length && preset?.xColumn && preset?.yColumns?.length);
+
+  const traces = [];
+  const colors = gradientColors(state.plotGradient, Math.max(1, candidates.length * 3));
+  let depth = 0;
+  candidates.forEach(({ dataset, table, preset }, datasetIndex) => {
+    const cycleColumn = findCycleColumn(table.headers, table.rows);
+    const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
+    const visibleGroups = cycleColumn ? groups : [[null, table.rows]];
+    visibleGroups.forEach(([cycle, rows], groupIndex) => {
+      depth += 1;
+      const color = colors[(depth - 1) % colors.length];
+      const series = pairedSeriesWithBreaks(rows, preset.xColumn, preset.yColumns[0], "cv", massMg, false);
+      traces.push({
+        x: series.x,
+        y: series.x.map((value) => (Number.isFinite(value) ? depth : null)),
+        z: series.y,
+        type: "scatter3d",
+        mode: "lines",
+        name: cycle === null ? dataset.name : `${dataset.name} C${cycle}`,
+        line: { color, width: Math.max(2, state.plotLineWidth + 1) },
+      });
+    });
+  });
+
+  if (!traces.length) {
+    return { traces: [], message: "No loaded CV files with voltage/current columns found." };
+  }
+
+  const first = candidates[0];
+  const xSeries = transformAxisValues(first.table.rows, first.preset.xColumn, "x", "cv", massMg);
+  const zSeries = transformAxisValues(first.table.rows, first.preset.yColumns[0], "y", "cv", massMg);
+  return {
+    traces,
+    is3d: true,
+    title: `${el.plotBatteryNameInput.value.trim() || currentDataset.name} - CV 3D stack`,
+    xTitle: xSeries.title,
+    yTitle: "Cycle / file",
+    zTitle: zSeries.title,
+    hint: `3D CV stack: ${traces.length} trace(s). Drag to rotate, scroll to zoom.`,
+  };
+}
+
 function buildDqdvSpec(table, dataset, preset) {
   const massMg = plotActiveMassMg();
   if (!preset.xColumn || !preset.yColumns.length) {
@@ -1733,7 +1832,7 @@ function buildDqdvSpec(table, dataset, preset) {
     processedCount += processed.y.filter(Number.isFinite).length;
     const style = plotTraceStyle(groupIndex, { color: colors[groupIndex] });
 
-    if (state.dqdvShowRaw && raw.x.length) {
+    if (!state.plot3d && state.dqdvShowRaw && raw.x.length) {
       traces.push({
         x: raw.x,
         y: raw.y,
@@ -1746,14 +1845,27 @@ function buildDqdvSpec(table, dataset, preset) {
     }
 
     if (processed.x.length) {
-      traces.push({
-        x: processed.x,
-        y: processed.y,
-        type: "scatter",
-        mode: "lines",
-        name: cycle === null ? yTitle : `Cycle ${cycle}`,
-        line: style.line,
-      });
+      if (state.plot3d) {
+        const depth = cycle === null ? groupIndex + 1 : cycle;
+        traces.push({
+          x: processed.x,
+          y: processed.x.map((value) => (Number.isFinite(value) ? depth : null)),
+          z: processed.y,
+          type: "scatter3d",
+          mode: "lines",
+          name: cycle === null ? `Trace ${groupIndex + 1}` : `Cycle ${cycle}`,
+          line: { color: colors[groupIndex], width: Math.max(2, state.plotLineWidth + 1) },
+        });
+      } else {
+        traces.push({
+          x: processed.x,
+          y: processed.y,
+          type: "scatter",
+          mode: "lines",
+          name: cycle === null ? yTitle : `Cycle ${cycle}`,
+          line: style.line,
+        });
+      }
     }
   });
 
@@ -1764,10 +1876,12 @@ function buildDqdvSpec(table, dataset, preset) {
   const postHint = state.dqdvPostWindow >= 3 ? `post SG window ${state.dqdvPostWindow}` : "no post-smoothing";
   return {
     traces,
+    is3d: state.plot3d,
     title: plotTitle(dataset),
     xTitle: "Voltage [V]",
-    yTitle,
-    hint: `${smoothingHint}; ${stepHint}; ${postHint}; min dV ${formatNumber(state.dqdvMinDvMv)} mV; ${processedCount}/${rawPointCount} derivative points shown.`,
+    yTitle: state.plot3d ? "Cycle" : yTitle,
+    zTitle: yTitle,
+    hint: `${state.plot3d ? "3D dQ/dV stack. Drag to rotate, scroll to zoom. " : ""}${smoothingHint}; ${stepHint}; ${postHint}; min dV ${formatNumber(state.dqdvMinDvMv)} mV; ${processedCount}/${rawPointCount} derivative points shown.`,
   };
 }
 
@@ -2442,6 +2556,19 @@ function plotAxisLayout(title, theme) {
   };
 }
 
+function plot3dAxisLayout(title, theme) {
+  return {
+    title: { text: title, font: { size: 15, color: theme.text } },
+    gridcolor: theme.grid,
+    zerolinecolor: theme.zero,
+    linecolor: theme.axis,
+    tickfont: { size: 12, color: theme.text },
+    backgroundcolor: theme.plot,
+    showbackground: true,
+    showspikes: false,
+  };
+}
+
 function plotThemeTokens() {
   if (state.plotTheme === "dark") {
     return {
@@ -2828,6 +2955,13 @@ function preferredPlotFamily(dataset) {
 }
 
 function syncAdvancedPlotControls() {
+  const canUse3d = ["cv", "dqdv"].includes(state.plotMethod);
+  if (!canUse3d) state.plot3d = false;
+  if (el.plot3dToggleBtn) {
+    el.plot3dToggleBtn.hidden = !canUse3d;
+    el.plot3dToggleBtn.classList.toggle("active", canUse3d && state.plot3d);
+    el.plot3dToggleBtn.setAttribute("aria-pressed", String(canUse3d && state.plot3d));
+  }
   if (el.advancedPlotControls) {
     el.advancedPlotControls.hidden = state.plotMethod !== "custom";
     el.advancedPlotControls.open = state.plotMethod === "custom";

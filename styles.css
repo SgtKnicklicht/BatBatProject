@@ -954,10 +954,52 @@ textarea:focus {
 
 .plot-context {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) 150px auto minmax(220px, 1fr);
   gap: 10px;
   align-items: end;
   margin-bottom: 12px;
+}
+
+.plot-3d-toggle {
+  width: 54px;
+  min-height: 42px;
+  border: 1px solid rgba(240, 249, 33, 0.26);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.02)),
+    rgba(30, 16, 48, 0.86);
+  color: var(--muted);
+  font-weight: 950;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 0 rgba(8, 3, 16, 0.65),
+    0 16px 24px rgba(0, 0, 0, 0.28);
+  transform: translateY(-5px);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.plot-3d-toggle:hover {
+  transform: translateY(-7px);
+}
+
+.plot-3d-toggle.active {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: linear-gradient(135deg, #0d0887, #9c179e 52%, #ed7953);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 5px 0 rgba(8, 3, 16, 0.72),
+    0 0 0 3px rgba(240, 249, 33, 0.1),
+    0 16px 28px rgba(0, 0, 0, 0.34);
+  transform: translateY(0);
+}
+
+.plot-3d-toggle[hidden] {
+  display: none;
 }
 
 .plot-tabs,
