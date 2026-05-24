@@ -169,8 +169,21 @@
               <details class="advanced-controls style-controls" id="plotStyleControls">
                 <summary>Style</summary>
                 <label class="toggle-row">
+                  <input id="plotOverlayInput" type="checkbox" />
+                  Overlay loaded files
+                </label>
+                <label class="toggle-row">
                   <input id="plotAutoColorInput" type="checkbox" checked />
                   Auto scheme
+                </label>
+                <label>
+                  Cycle gradient
+                  <select id="plotGradientSelect">
+                    <option value="plasma">Plasma</option>
+                    <option value="viridis">Viridis</option>
+                    <option value="inferno">Inferno</option>
+                    <option value="blue-red">Blue to red</option>
+                  </select>
                 </label>
                 <label class="color-control">
                   Color
@@ -183,6 +196,18 @@
                 <label>
                   Point size <span id="plotMarkerSizeValue">5</span>
                   <input id="plotMarkerSizeInput" type="range" min="2" max="14" step="1" value="5" />
+                </label>
+              </details>
+
+              <details class="advanced-controls" id="cycleControls">
+                <summary>Cycles</summary>
+                <label>
+                  Show cycles
+                  <input id="cycleFilterInput" placeholder="all, 1-3, 5, 10-20" />
+                </label>
+                <label>
+                  Every nth cycle
+                  <input id="cycleStepInput" type="number" min="1" step="1" value="1" />
                 </label>
               </details>
 
@@ -219,6 +244,8 @@
                     <option value="cv" title="current vs voltage">CV</option>
                     <option value="cv-specific" title="specific current vs voltage">CV spec.</option>
                     <option value="cd" title="voltage vs capacity">CD</option>
+                    <option value="cd-specific" title="voltage vs specific capacity">CD spec.</option>
+                    <option value="cd-time" title="voltage vs time by cycle">V-t</option>
                     <option value="rate" title="capacity vs cycle">Rate</option>
                     <option value="dqdv" title="derivative curve">dQ/dV</option>
                     <option value="eis" title="Nyquist">EIS</option>

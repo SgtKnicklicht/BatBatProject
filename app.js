@@ -15,6 +15,8 @@ const PLOT_METHODS = {
   cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   "cv-specific": { short: "CV spec.", hint: "specific current vs voltage", colors: ["#404040", "#ef4444", "#1f6feb", "#a21caf"] },
   cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
+  "cd-specific": { short: "CD spec.", hint: "voltage vs specific capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
+  "cd-time": { short: "V-t", hint: "CD voltage vs time by cycle", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   rate: { short: "Rate", hint: "capacity vs cycle", colors: ["#5b02a3", "#9c179e", "#cc4778", "#ed7953"] },
   dqdv: { short: "dQ/dV", hint: "derivative curve", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
   eis: { short: "EIS", hint: "Nyquist", colors: ["#0d0887", "#2563eb", "#22a7f0", "#5b02a3"] },
@@ -45,6 +47,10 @@ const state = {
   plotColor: "#2563eb",
   plotLineWidth: 2.4,
   plotMarkerSize: 5,
+  plotGradient: "plasma",
+  plotOverlayFiles: false,
+  cycleFilter: "",
+  cycleStep: 1,
 };
 
 const el = {
@@ -79,13 +85,17 @@ const el = {
   plotMethodSelect: document.querySelector("#plotMethodSelect"),
   plotBatteryNameInput: document.querySelector("#plotBatteryNameInput"),
   plotActiveMassInput: document.querySelector("#plotActiveMassInput"),
+  plotOverlayInput: document.querySelector("#plotOverlayInput"),
   plotAutoColorInput: document.querySelector("#plotAutoColorInput"),
+  plotGradientSelect: document.querySelector("#plotGradientSelect"),
   plotColorInput: document.querySelector("#plotColorInput"),
   plotLineWidthInput: document.querySelector("#plotLineWidthInput"),
   plotLineWidthValue: document.querySelector("#plotLineWidthValue"),
   plotMarkerSizeInput: document.querySelector("#plotMarkerSizeInput"),
   plotMarkerSizeValue: document.querySelector("#plotMarkerSizeValue"),
   advancedPlotControls: document.querySelector("#advancedPlotControls"),
+  cycleFilterInput: document.querySelector("#cycleFilterInput"),
+  cycleStepInput: document.querySelector("#cycleStepInput"),
   plotCanvas: document.querySelector("#plotCanvas"),
   datasetStats: document.querySelector("#datasetStats"),
   exportPlotBtn: document.querySelector("#exportPlotBtn"),
@@ -794,19 +804,27 @@ function bindFiles() {
 function bindPlotStyleControls() {
   if (!el.plotAutoColorInput) return;
   const syncStyleInputs = () => {
+    state.plotOverlayFiles = el.plotOverlayInput.checked;
     state.plotAutoColor = el.plotAutoColorInput.checked;
+    state.plotGradient = el.plotGradientSelect.value;
     state.plotColor = el.plotColorInput.value;
     state.plotLineWidth = readNumber(el.plotLineWidthInput.value) || 2.4;
     state.plotMarkerSize = readNumber(el.plotMarkerSizeInput.value) || 5;
+    state.cycleFilter = el.cycleFilterInput.value.trim();
+    state.cycleStep = Math.max(1, Math.round(readNumber(el.cycleStepInput.value) || 1));
     el.plotColorInput.disabled = state.plotAutoColor;
     el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
     el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
     renderPlot();
   };
+  el.plotOverlayInput.addEventListener("change", syncStyleInputs);
   el.plotAutoColorInput.addEventListener("change", syncStyleInputs);
+  el.plotGradientSelect.addEventListener("change", syncStyleInputs);
   el.plotColorInput.addEventListener("input", syncStyleInputs);
   el.plotLineWidthInput.addEventListener("input", syncStyleInputs);
   el.plotMarkerSizeInput.addEventListener("input", syncStyleInputs);
+  el.cycleFilterInput.addEventListener("input", syncStyleInputs);
+  el.cycleStepInput.addEventListener("input", syncStyleInputs);
   applyMethodStyleDefaults();
   syncStyleInputs();
 }
@@ -1101,6 +1119,8 @@ function buildPlotPreset(table) {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
     "cv-specific": { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
     cd: { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
+    "cd-specific": { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
+    "cd-time": { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     rate: { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     dqdv: { xColumn: voltage, yColumns: [charge].filter(Boolean), mode: "lines" },
     eis: { xColumn: zReal, yColumns: [zImag].filter(Boolean), mode: "lines+markers" },
@@ -1127,6 +1147,12 @@ function buildPlotSpec(table, dataset) {
     return buildCustomPlotSpec(table, dataset, xColumn, yColumns);
   }
 
+  if ((method === "cv" || method === "cv-specific") && state.plotOverlayFiles) {
+    return buildOverlayCvSpec(dataset);
+  }
+  if (method === "cd" || method === "cd-specific" || method === "cd-time") {
+    return buildCdSpec(table, dataset, preset, method);
+  }
   if (method === "dqdv") return buildDqdvSpec(table, dataset, preset);
   if (method === "eis") return buildEisSpec(table, dataset, preset);
 
@@ -1190,6 +1216,108 @@ function buildCustomPlotSpec(table, dataset, xColumn, yColumns) {
     xTitle: xSeries.title,
     yTitle: yColumns.join(", "),
     hint: "Custom axes are using the selected table columns.",
+  };
+}
+
+function buildCdSpec(table, dataset, preset, method) {
+  const massMg = plotActiveMassMg();
+  if (method === "cd-specific" && !massMg) {
+    return {
+      traces: [],
+      message: "Enter active mass in mg to plot specific capacity.",
+      hint: "Specific capacity needs active mass.",
+    };
+  }
+  if (!preset.xColumn || !preset.yColumns.length) {
+    return { traces: [], message: "CD needs voltage, capacity/time, and preferably cycle columns." };
+  }
+
+  const xColumn = preset.xColumn;
+  const yColumn = preset.yColumns[0];
+  const xSeries = transformAxisValues(table.rows, xColumn, "x", method, massMg);
+  const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
+  const cycleColumn = findCycleColumn(table.headers);
+  const groups = cycleGroups(table.rows, cycleColumn);
+  const selectedGroups = selectedCycleGroups(groups);
+  if (!selectedGroups.length) {
+    return { traces: [], message: "No cycles matched the cycle filter." };
+  }
+  const colors = gradientColors(state.plotGradient, selectedGroups.length || 1);
+  const traces = selectedGroups.map(([cycle, rows], index) => {
+    const style = plotTraceStyle(index, { color: state.plotAutoColor ? colors[index] : undefined });
+    const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, method !== "cd-time");
+    return {
+      x: series.x,
+      y: series.y,
+      type: "scatter",
+      mode: "lines",
+      name: cycle === null ? "CD" : `Cycle ${cycle}`,
+      line: style.line,
+      marker: style.marker,
+    };
+  });
+
+  return {
+    traces,
+    title: plotTitle(dataset),
+    xTitle: xSeries.title,
+    yTitle: ySeries.title,
+    hint: cycleColumn
+      ? `${selectedGroups.length} of ${groups.length} cycles shown.`
+      : "CD trace shown without cycle grouping.",
+  };
+}
+
+function buildOverlayCvSpec(currentDataset) {
+  const massMg = plotActiveMassMg();
+  if (state.plotMethod === "cv-specific" && !massMg) {
+    return {
+      traces: [],
+      message: "Enter active mass in mg to overlay specific CV currents.",
+      hint: "Specific current needs active mass.",
+    };
+  }
+  const candidates = state.datasets
+    .map((dataset) => {
+      const table = tableForDatasetMethod(dataset, state.plotMethod);
+      const preset = buildPlotPreset(table);
+      return { dataset, table, preset };
+    })
+    .filter(({ table, preset }) => table?.rows?.length && preset?.xColumn && preset?.yColumns?.length);
+
+  const colors = gradientColors(state.plotGradient, candidates.length || 1);
+  const traces = candidates.flatMap(({ dataset, table, preset }, index) => {
+    const cycleColumn = findCycleColumn(table.headers);
+    const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
+    const visibleGroups = cycleColumn ? groups : [[null, table.rows]];
+    return visibleGroups.map(([cycle, rows], groupIndex) => {
+      const style = plotTraceStyle(index + groupIndex, { color: state.plotAutoColor ? colors[index] : undefined });
+      const series = pairedSeriesWithBreaks(rows, preset.xColumn, preset.yColumns[0], state.plotMethod, massMg, false);
+      return {
+        x: series.x,
+        y: series.y,
+        type: "scatter",
+        mode: "lines",
+        name: cycle === null ? dataset.name : `${dataset.name} C${cycle}`,
+        line: style.line,
+        marker: style.marker,
+      };
+    });
+  });
+
+  if (!traces.length) {
+    return { traces: [], message: "No loaded files with compatible CV voltage/current columns found." };
+  }
+
+  const first = candidates[0];
+  const xSeries = transformAxisValues(first.table.rows, first.preset.xColumn, "x", state.plotMethod, massMg);
+  const ySeries = transformAxisValues(first.table.rows, first.preset.yColumns[0], "y", state.plotMethod, massMg);
+  return {
+    traces,
+    title: `${el.plotBatteryNameInput.value.trim() || currentDataset.name} - CV overlay`,
+    xTitle: xSeries.title,
+    yTitle: ySeries.title,
+    hint: `${candidates.length} loaded files overlaid.`,
   };
 }
 
@@ -1274,7 +1402,7 @@ function transformAxisValues(rows, column, axis, method, massMg) {
 
   if (isCapacityColumn(column)) {
     const capacityMAh = values.map((value) => capacityToMAh(value, column));
-    if (axis === "x" && method === "cd" && massG) {
+    if (axis === "x" && method === "cd-specific" && massG) {
       return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
     if (axis === "y" && (method === "rate" || method === "cd") && massG) {
@@ -1288,6 +1416,75 @@ function transformAxisValues(rows, column, axis, method, massMg) {
 
 function numericSeries(rows, column) {
   return rows.map((row) => readNumber(row[column]));
+}
+
+function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnXReset = false) {
+  const xSeries = transformAxisValues(rows, xColumn, "x", method, massMg).values;
+  const ySeries = transformAxisValues(rows, yColumn, "y", method, massMg).values;
+  const x = [];
+  const y = [];
+  let lastX = null;
+
+  xSeries.forEach((xValue, index) => {
+    const yValue = ySeries[index];
+    if (!Number.isFinite(xValue) || !Number.isFinite(yValue)) return;
+    if (breakOnXReset && lastX !== null && xValue < lastX - 1e-8) {
+      x.push(null);
+      y.push(null);
+    }
+    x.push(xValue);
+    y.push(yValue);
+    lastX = xValue;
+  });
+
+  return { x, y };
+}
+
+function findCycleColumn(headers) {
+  return findColumn(headers, ["Cycle Index", "Cycle", "Cycle number", "Cycle Number", "CycleID"]);
+}
+
+function cycleGroups(rows, cycleColumn) {
+  if (!cycleColumn) return [[null, rows]];
+  const groups = new Map();
+  rows.forEach((row) => {
+    const cycle = readNumber(row[cycleColumn]);
+    if (!Number.isFinite(cycle) || cycle <= 0) return;
+    const key = Number.isInteger(cycle) ? cycle : Number(cycle.toFixed(6));
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+  const entries = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  return entries.length ? entries : [[null, rows]];
+}
+
+function selectedCycleGroups(groups) {
+  if (!groups.length || groups[0][0] === null) return groups;
+  const available = groups.map(([cycle]) => cycle);
+  const allowed = parseCycleFilter(state.cycleFilter, available);
+  const step = Math.max(1, state.cycleStep || 1);
+  return groups.filter(([cycle]) => allowed.has(cycle)).filter((_, index) => index % step === 0);
+}
+
+function parseCycleFilter(text, available) {
+  if (!text || /^all$/i.test(text.trim())) return new Set(available);
+  const allowed = new Set();
+  text.split(",").forEach((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return;
+    const match = trimmed.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (match) {
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      const min = Math.min(start, end);
+      const max = Math.max(start, end);
+      available.filter((cycle) => cycle >= min && cycle <= max).forEach((cycle) => allowed.add(cycle));
+      return;
+    }
+    const cycle = Number(trimmed);
+    if (Number.isFinite(cycle)) allowed.add(cycle);
+  });
+  return allowed.size ? allowed : new Set(available);
 }
 
 function currentToMA(value, column) {
@@ -1382,7 +1579,7 @@ function plotMethodHint() {
 
 function plotHintText(method, massMg) {
   const sheet = state.selectedSheet ? `Using ${state.selectedSheet}. ` : "";
-  if ((method === "cd" || method === "rate" || method === "dqdv") && !massMg) {
+  if ((method === "cd-specific" || method === "rate" || method === "dqdv") && !massMg) {
     return `${sheet}Enter active mass to show specific capacity.`;
   }
   return `${sheet}${plotMethodLabel()} preset applied.`;
@@ -1409,7 +1606,7 @@ function normalizeColumnName(value) {
 }
 
 function plotTraceStyle(index, options = {}) {
-  const color = state.plotAutoColor ? plotMethodColors()[index % plotMethodColors().length] : state.plotColor;
+  const color = options.color || (state.plotAutoColor ? plotMethodColors()[index % plotMethodColors().length] : state.plotColor);
   return {
     line: { color, width: state.plotLineWidth },
     marker: {
@@ -1422,6 +1619,37 @@ function plotTraceStyle(index, options = {}) {
 
 function plotMethodColors() {
   return PLOT_METHODS[state.plotMethod]?.colors || plasmaColors();
+}
+
+function gradientColors(name, count) {
+  const palettes = {
+    plasma: ["#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"],
+    viridis: ["#440154", "#31688e", "#35b779", "#fde725"],
+    inferno: ["#000004", "#57106e", "#bc3754", "#f98e09", "#fcffa4"],
+    "blue-red": ["#2563eb", "#7e03a8", "#ef4444"],
+  };
+  const stops = palettes[name] || palettes.plasma;
+  if (count <= 1) return [stops[0]];
+  return Array.from({ length: count }, (_, index) => interpolatePalette(stops, index / (count - 1)));
+}
+
+function interpolatePalette(stops, t) {
+  const scaled = t * (stops.length - 1);
+  const index = Math.min(stops.length - 2, Math.floor(scaled));
+  const local = scaled - index;
+  return mixHex(stops[index], stops[index + 1], local);
+}
+
+function mixHex(a, b, t) {
+  const ca = hexToRgb(a);
+  const cb = hexToRgb(b);
+  const mixed = ca.map((value, index) => Math.round(value + (cb[index] - value) * t));
+  return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  return [0, 2, 4].map((offset) => parseInt(clean.slice(offset, offset + 2), 16));
 }
 
 function plasmaColors() {
@@ -1773,14 +2001,19 @@ function getSelectedTable() {
   const dataset = getSelectedDataset();
   if (!dataset) return null;
   if (state.plotMethod !== "custom") {
-    const sheetName = preferredSheetName(dataset);
+    const sheetName = preferredSheetName(dataset, state.plotMethod);
     state.selectedSheet = sheetName;
     return dataset.sheets[sheetName];
   }
   return dataset.sheets[state.selectedSheet] || dataset.sheets[preferredSheetName(dataset)];
 }
 
-function preferredSheetName(dataset) {
+function tableForDatasetMethod(dataset, method) {
+  const sheetName = preferredSheetName(dataset, method);
+  return dataset?.sheets?.[sheetName] || null;
+}
+
+function preferredSheetName(dataset, method = state.plotMethod) {
   if (!dataset) return "";
   const names = Object.keys(dataset.sheets);
   const lower = (name) => name.toLowerCase();
@@ -1788,11 +2021,13 @@ function preferredSheetName(dataset) {
     rate: ["cycle", "summary"],
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
+    "cd-specific": ["record", "data", "cycle"],
+    "cd-time": ["record", "data", "cycle"],
     cv: ["data", "record"],
     "cv-specific": ["data", "record"],
     eis: ["data", "record"],
     gitt: ["data", "record"],
-  }[state.plotMethod] || [];
+  }[method] || [];
 
   for (const preferred of byMethod) {
     const match = names.find((name) => lower(name).includes(preferred));
@@ -1815,8 +2050,8 @@ function preferredPlotMethod(dataset) {
   const headers = Object.values(dataset.sheets).flatMap((table) => table.headers || []);
   if (findColumn(headers, ["Zreal", "Z Real", "Re(Z)", "Real Impedance"])) return "eis";
   if (findColumn(headers, ["Working Electrode (V)", "Current (A)"])) return "cv";
-  if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) return "rate";
   if (findColumn(headers, ["Voltage(V)", "Capacity(Ah)", "Current(A)"])) return "cd";
+  if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) return "rate";
   return "custom";
 }
 
