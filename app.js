@@ -1131,18 +1131,18 @@ function inferDatasetMethods(name, sheets) {
   const headers = Object.values(sheets).flatMap((table) => table.headers || []);
   const normalizedName = String(name || "").toLowerCase();
   const methods = new Set();
-  if (findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance"])) {
+  if (hasEisColumns(headers)) {
     methods.add("eis");
   }
-  if (findColumn(headers, ["Working Electrode (V)", "Current (A)"]) || normalizedName.includes("cv")) {
+  if (hasVoltageColumn(headers) && hasCurrentColumn(headers) && (normalizedName.includes("cv") || !hasCapacityColumn(headers))) {
     methods.add("cv");
   }
-  if (findColumn(headers, ["Voltage(V)", "Capacity(Ah)", "Current(A)"]) || normalizedName.includes("cd")) {
+  if (hasVoltageColumn(headers) && hasCapacityColumn(headers)) {
     methods.add("cd");
-  }
-  if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) {
-    methods.add("rate");
     methods.add("dqdv");
+  }
+  if (hasCycleSummaryColumns(headers)) {
+    methods.add("rate");
   }
   if (normalizedName.includes("gitt")) {
     methods.add("gitt");
@@ -1350,10 +1350,10 @@ function resizePlotCanvas() {
 function buildPlotPreset(table) {
   if (!table?.headers?.length) return null;
   const headers = table.headers;
-  const voltage = findColumn(headers, ["Working Electrode (V)", "Voltage(V)", "Voltage", "Ewe/V"]);
-  const current = findColumn(headers, ["Current (A)", "Current(A)", "Current", "I/A"]);
+  const voltage = voltageColumn(headers);
+  const current = currentColumn(headers);
   const time = findColumn(headers, ["Elapsed Time (s)", "Total Time", "Time", "Test Time", "Step Time"]);
-  const charge = findColumn(headers, ["Cumulative Charge (mAh)", "Capacity(Ah)", "Chg. Cap.(Ah)", "DChg. Cap.(Ah)", "Capacity"]);
+  const charge = capacityColumn(headers);
   const cycle = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
   const dchg = findColumn(headers, ["DChg. Cap.(Ah)", "Discharge Capacity", "DChg Cap", "Capacity(Ah)"]);
   const zReal = findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]);
@@ -1458,6 +1458,9 @@ function buildCdSpec(table, dataset, preset, method) {
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "CD needs voltage, capacity/time, and preferably cycle columns." };
   }
+  if (method === "cd" && !isCapacityColumn(preset.xColumn)) {
+    return { traces: [], message: "Voltage vs capacity needs a charge/capacity column. Try the V-t variant for time data." };
+  }
 
   const xColumn = preset.xColumn;
   const yColumn = preset.yColumns[0];
@@ -1465,7 +1468,9 @@ function buildCdSpec(table, dataset, preset, method) {
   const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
   const cycleColumn = findCycleColumn(table.headers, table.rows);
   const groups = cycleGroups(table.rows, cycleColumn);
-  const selectedGroups = selectedCycleGroups(groups);
+  let selectedGroups = selectedCycleGroups(groups);
+  const cycleFilterFallback = !selectedGroups.length && groups.length;
+  if (cycleFilterFallback) selectedGroups = groups;
   if (!selectedGroups.length) {
     return { traces: [], message: "No cycles matched the cycle filter." };
   }
@@ -1490,7 +1495,7 @@ function buildCdSpec(table, dataset, preset, method) {
     xTitle: xSeries.title,
     yTitle: ySeries.title,
     hint: cycleColumn
-      ? `${selectedGroups.length} of ${groups.length} cycles shown.`
+      ? `${selectedGroups.length} of ${groups.length} cycles shown.${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`
       : "CD trace shown without cycle grouping.",
   };
 }
@@ -1508,8 +1513,9 @@ function buildOverlayCvSpec(currentDataset) {
   const colors = gradientColors(state.plotGradient, candidates.length || 1);
   const traces = candidates.flatMap(({ dataset, table, preset }, index) => {
     const cycleColumn = findCycleColumn(table.headers, table.rows);
-    const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
-    const visibleGroups = cycleColumn ? groups : [[null, table.rows]];
+    const allGroups = cycleGroups(table.rows, cycleColumn);
+    const groups = selectedCycleGroups(allGroups);
+    const visibleGroups = cycleColumn ? (groups.length ? groups : allGroups) : [[null, table.rows]];
     return visibleGroups.map(([cycle, rows], groupIndex) => {
       const style = plotTraceStyle(index + groupIndex, { color: state.plotAutoColor ? colors[index] : undefined });
       const series = pairedSeriesWithBreaks(rows, preset.xColumn, preset.yColumns[0], state.plotMethod, massMg, false);
@@ -1906,6 +1912,65 @@ function isCapacityColumn(column) {
   return lower.includes("cap") || lower.includes("charge") || lower.includes("q/");
 }
 
+function voltageColumn(headers) {
+  return electrochemicalVoltageColumn(headers)
+    || findColumn(headers, ["DC Working Electrode (V)", "DC Voltage (V)", "DC Voltage"]);
+}
+
+function currentColumn(headers) {
+  return electrochemicalCurrentColumn(headers)
+    || findColumn(headers, ["DC Current (A)", "DC Current"]);
+}
+
+function capacityColumn(headers) {
+  return exactColumn(headers, [
+    "Cumulative Charge (mAh)",
+    "Capacity(Ah)",
+    "Capacity (Ah)",
+    "Capacity(mAh)",
+    "Capacity (mAh)",
+    "Chg. Cap.(Ah)",
+    "DChg. Cap.(Ah)",
+    "Charge Capacity",
+    "Discharge Capacity",
+    "Q/mAh",
+  ]) || headers.find((header) => isCapacityColumn(header) && !normalizeColumnName(header).includes("cycle")) || "";
+}
+
+function electrochemicalVoltageColumn(headers) {
+  return exactColumn(headers, ["Working Electrode (V)", "Voltage(V)", "Voltage (V)", "Voltage", "Ewe/V"])
+    || headers.find((header) => isVoltageColumn(header) && !normalizeColumnName(header).startsWith("dc")) || "";
+}
+
+function electrochemicalCurrentColumn(headers) {
+  return exactColumn(headers, ["Current (A)", "Current(A)", "Current", "I/A"])
+    || headers.find((header) => {
+      const normalized = normalizeColumnName(header);
+      const lower = String(header).toLowerCase();
+      return isCurrentColumn(header) && !normalized.startsWith("dc") && !lower.includes("density");
+    }) || "";
+}
+
+function hasVoltageColumn(headers) {
+  return Boolean(electrochemicalVoltageColumn(headers));
+}
+
+function hasCurrentColumn(headers) {
+  return Boolean(electrochemicalCurrentColumn(headers));
+}
+
+function hasCapacityColumn(headers) {
+  return Boolean(capacityColumn(headers));
+}
+
+function hasCycleSummaryColumns(headers) {
+  return Boolean(exactColumn(headers, ["Cycle Index", "Cycle"]) && capacityColumn(headers));
+}
+
+function hasEisColumns(headers) {
+  return Boolean(findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]));
+}
+
 function axisTitleFromColumn(column) {
   if (isVoltageColumn(column)) return "Voltage [V]";
   if (isCurrentColumn(column)) return "Current [mA]";
@@ -1980,6 +2045,15 @@ function plotHintText(method, massMg) {
     return `${sheet}Enter active mass to switch to specific values.`;
   }
   return `${sheet}${plotMethodLabel()} preset applied.`;
+}
+
+function exactColumn(headers, candidates) {
+  const normalized = headers.map((header) => normalizeColumnName(header));
+  for (const candidate of candidates) {
+    const exactIndex = normalized.indexOf(normalizeColumnName(candidate));
+    if (exactIndex >= 0) return headers[exactIndex];
+  }
+  return "";
 }
 
 function findColumn(headers, candidates) {
@@ -2509,10 +2583,10 @@ function pickColumn(headers, preferred) {
 function preferredPlotMethod(dataset) {
   if (!dataset) return "cv";
   const headers = Object.values(dataset.sheets).flatMap((table) => table.headers || []);
-  if (findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance"])) return "eis";
-  if (findColumn(headers, ["Working Electrode (V)", "Current (A)"])) return "cv";
-  if (findColumn(headers, ["Voltage(V)", "Capacity(Ah)", "Current(A)"])) return "cd";
-  if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) return "rate";
+  if (hasVoltageColumn(headers) && hasCapacityColumn(headers)) return "cd";
+  if (hasEisColumns(headers)) return "eis";
+  if (hasVoltageColumn(headers) && hasCurrentColumn(headers)) return "cv";
+  if (hasCycleSummaryColumns(headers)) return "rate";
   return "custom";
 }
 
