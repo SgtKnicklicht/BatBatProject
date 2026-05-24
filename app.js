@@ -126,8 +126,10 @@ const el = {
   plotMarkerSizeInput: document.querySelector("#plotMarkerSizeInput"),
   plotMarkerSizeValue: document.querySelector("#plotMarkerSizeValue"),
   advancedPlotControls: document.querySelector("#advancedPlotControls"),
+  cycleControls: document.querySelector("#cycleControls"),
   cycleFilterInput: document.querySelector("#cycleFilterInput"),
   cycleStepInput: document.querySelector("#cycleStepInput"),
+  dqdvControls: document.querySelector("#dqdvControls"),
   dqdvSmoothingSelect: document.querySelector("#dqdvSmoothingSelect"),
   dqdvWindowInput: document.querySelector("#dqdvWindowInput"),
   dqdvPolynomialSelect: document.querySelector("#dqdvPolynomialSelect"),
@@ -1269,6 +1271,7 @@ function parseNotes(text) {
 function renderDatasetControls() {
   renderImportedFileList();
   renderPlotTabs();
+  syncAdvancedPlotControls();
   const options = datasetsForFamily(state.plotFamily);
   el.datasetSelect.innerHTML = options
     .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)} (${DATASET_TYPES[dataset.type] || dataset.type || dataset.kind})</option>`)
@@ -1313,6 +1316,7 @@ function renderPlotTabs() {
     state.plotMethod = methods[0];
     el.plotMethodSelect.value = state.plotMethod;
   }
+  syncAdvancedPlotControls();
   el.plotVariantTabs.innerHTML = methods
     .map((method) => {
       const active = method === state.plotMethod ? "active" : "";
@@ -1617,7 +1621,7 @@ function buildCdSpec(table, dataset, preset, method) {
   const xSeries = transformAxisValues(table.rows, xColumn, "x", method, massMg);
   const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
   const cycleColumn = findCycleColumn(table.headers, table.rows);
-  const groups = cycleGroups(table.rows, cycleColumn);
+  const groups = cycleGroupsForPlot(table.rows, cycleColumn, method === "cd" ? xColumn : capacityColumn(table.headers));
   let selectedGroups = selectedCycleGroups(groups);
   const cycleFilterFallback = !selectedGroups.length && groups.length;
   if (cycleFilterFallback) selectedGroups = groups;
@@ -1644,9 +1648,7 @@ function buildCdSpec(table, dataset, preset, method) {
     title: plotTitle(dataset),
     xTitle: xSeries.title,
     yTitle: ySeries.title,
-    hint: cycleColumn
-      ? `${selectedGroups.length} of ${groups.length} cycles shown.${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`
-      : "CD trace shown without cycle grouping.",
+    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
 }
 
@@ -1703,7 +1705,7 @@ function buildDqdvSpec(table, dataset, preset) {
     return { traces: [], message: "dQ/dV needs voltage and capacity columns from cycling data." };
   }
   const cycleColumn = findCycleColumn(table.headers, table.rows);
-  const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
+  const groups = selectedCycleGroups(cycleGroupsForPlot(table.rows, cycleColumn, preset.yColumns[0]));
   if (!groups.length) return { traces: [], message: "No cycles matched the cycle filter." };
 
   const minDv = state.dqdvMinDvMv / 1000;
@@ -2009,6 +2011,45 @@ function cycleGroups(rows, cycleColumn) {
   });
   const entries = [...groups.entries()].sort((a, b) => a[0] - b[0]);
   return entries.length ? entries : [[null, rows]];
+}
+
+function cycleGroupsForPlot(rows, cycleColumn, resetColumn = "") {
+  const explicit = cycleGroups(rows, cycleColumn);
+  if (explicit.length > 1 || explicit[0]?.[0] !== null) return explicit;
+  const inferred = inferCycleGroupsFromResets(rows, resetColumn);
+  return inferred.length > 1 ? inferred : explicit;
+}
+
+function inferCycleGroupsFromResets(rows, resetColumn) {
+  if (!resetColumn) return [];
+  const values = numericSeries(rows, resetColumn);
+  const finite = values.filter(Number.isFinite);
+  if (finite.length < 12) return [];
+  const limits = finite.reduce(
+    (acc, value) => ({ min: Math.min(acc.min, value), max: Math.max(acc.max, value) }),
+    { min: finite[0], max: finite[0] },
+  );
+  const span = limits.max - limits.min;
+  if (!Number.isFinite(span) || span <= 0) return [];
+  const resetThreshold = Math.max(span * 0.08, 1e-6);
+  const groups = [];
+  let current = [];
+  let cycle = 1;
+  let lastValue = null;
+
+  rows.forEach((row, index) => {
+    const value = values[index];
+    if (!Number.isFinite(value)) return;
+    if (lastValue !== null && current.length >= 6 && value < lastValue - resetThreshold) {
+      groups.push([cycle, current]);
+      cycle += 1;
+      current = [];
+    }
+    current.push(row);
+    lastValue = value;
+  });
+  if (current.length >= 6) groups.push([cycle, current]);
+  return groups;
 }
 
 function selectedCycleGroups(groups) {
@@ -2745,8 +2786,17 @@ function preferredPlotFamily(dataset) {
 }
 
 function syncAdvancedPlotControls() {
-  if (!el.advancedPlotControls) return;
-  el.advancedPlotControls.open = state.plotMethod === "custom";
+  if (el.advancedPlotControls) {
+    el.advancedPlotControls.hidden = state.plotMethod !== "custom";
+    el.advancedPlotControls.open = state.plotMethod === "custom";
+  }
+  if (el.dqdvControls) {
+    el.dqdvControls.hidden = state.plotMethod !== "dqdv";
+    el.dqdvControls.open = state.plotMethod === "dqdv";
+  }
+  if (el.cycleControls) {
+    el.cycleControls.hidden = !["cd", "cd-time", "dqdv"].includes(state.plotMethod);
+  }
 }
 
 function exportSelectedCsv() {
