@@ -31,6 +31,16 @@ const PLOT_FAMILIES = {
   gitt: { label: "GITT", methods: ["gitt"] },
   custom: { label: "Custom", methods: ["custom"] },
 };
+const DATASET_TYPES = {
+  cv: "CV",
+  cd: "CD",
+  rate: "Rate",
+  dqdv: "dQ/dV",
+  eis: "EIS",
+  gitt: "GITT",
+  custom: "Custom",
+  metadata: "Notes",
+};
 
 const state = {
   reservations: [],
@@ -96,6 +106,7 @@ const el = {
   dropZone: document.querySelector("#dropZone"),
   fileInput: document.querySelector("#fileInput"),
   datasetSelect: document.querySelector("#datasetSelect"),
+  importedFileList: document.querySelector("#importedFileList"),
   sheetSelect: document.querySelector("#sheetSelect"),
   xColumnSelect: document.querySelector("#xColumnSelect"),
   yColumnSelect: document.querySelector("#yColumnSelect"),
@@ -172,6 +183,7 @@ function boot() {
   renderMemberList();
   renderReservations();
   renderReservationHistory();
+  renderImportedFileList();
   renderPlotTabs();
   renderEmptyPlot();
   calculate();
@@ -879,6 +891,8 @@ function bindFiles() {
     state.selectedSheet = preferredSheetName(dataset);
     renderDatasetControls();
   });
+  el.importedFileList.addEventListener("change", handleImportedFileChange);
+  el.importedFileList.addEventListener("click", handleImportedFileClick);
   el.sheetSelect.addEventListener("change", () => {
     state.selectedSheet = el.sheetSelect.value;
     renderColumnControls();
@@ -947,6 +961,63 @@ function handlePlotVariantClick(event) {
   renderPlotTabs();
   renderColumnControls();
   renderPlot();
+}
+
+function handleImportedFileChange(event) {
+  const item = event.target.closest("[data-dataset-id]");
+  if (!item) return;
+  const dataset = state.datasets.find((entry) => entry.id === item.dataset.datasetId);
+  if (!dataset) return;
+
+  const action = event.target.dataset.fileAction;
+  if (action === "toggle") {
+    dataset.enabled = event.target.checked;
+    if (!dataset.enabled && state.selectedDatasetId === dataset.id) {
+      selectDatasetForFamily(state.plotFamily);
+    }
+  }
+  if (action === "type") {
+    dataset.type = event.target.value;
+    dataset.methods = methodsForDatasetType(dataset.type);
+    dataset.enabled = dataset.type !== "metadata";
+    state.plotFamily = dataset.type === "metadata" ? state.plotFamily : datasetFamily(dataset);
+    state.plotMethod = PLOT_FAMILIES[state.plotFamily]?.methods[0] || "custom";
+    state.selectedDatasetId = dataset.enabled ? dataset.id : null;
+    state.selectedSheet = preferredSheetName(dataset);
+    applyMethodStyleDefaults();
+    syncAdvancedPlotControls();
+  }
+  updateSessionSummary();
+  renderDatasetControls();
+}
+
+function handleImportedFileClick(event) {
+  const button = event.target.closest("[data-file-action]");
+  const item = event.target.closest("[data-dataset-id]");
+  if (!button || !item) return;
+  const dataset = state.datasets.find((entry) => entry.id === item.dataset.datasetId);
+  if (!dataset) return;
+
+  if (button.dataset.fileAction === "select") {
+    if (dataset.type === "metadata") return;
+    dataset.enabled = true;
+    state.selectedDatasetId = dataset.id;
+    state.plotFamily = datasetFamily(dataset);
+    state.plotMethod = PLOT_FAMILIES[state.plotFamily]?.methods[0] || "custom";
+    state.selectedSheet = preferredSheetName(dataset);
+    applyMethodStyleDefaults();
+    syncAdvancedPlotControls();
+    renderDatasetControls();
+  }
+
+  if (button.dataset.fileAction === "delete") {
+    state.datasets = state.datasets.filter((entry) => entry.id !== dataset.id);
+    if (state.selectedDatasetId === dataset.id) {
+      selectDatasetForFamily(state.plotFamily);
+    }
+    updateSessionSummary();
+    renderDatasetControls();
+  }
 }
 
 function bindPlotStyleControls() {
@@ -1020,10 +1091,10 @@ async function handleFiles(files) {
     parsed.push(await parseFile(file));
   }
   state.datasets.push(...parsed);
-  const firstPlottable = parsed.find((dataset) => Object.keys(dataset.sheets).length) || parsed[0];
+  const firstPlottable = parsed.find((dataset) => Object.keys(dataset.sheets).length && dataset.enabled !== false) || parsed[0];
   state.selectedDatasetId = firstPlottable.id;
   state.selectedSheet = preferredSheetName(firstPlottable);
-  state.plotFamily = preferredPlotFamily(firstPlottable);
+  state.plotFamily = datasetFamily(firstPlottable);
   state.plotMethod = PLOT_FAMILIES[state.plotFamily]?.methods[0] || preferredPlotMethod(firstPlottable);
   el.plotMethodSelect.value = state.plotMethod;
   syncAdvancedPlotControls();
@@ -1041,6 +1112,8 @@ async function parseFile(file) {
       id,
       name: file.name,
       kind: "metadata",
+      type: "metadata",
+      enabled: true,
       metadata: parseNotes(text),
       sheets: {},
     };
@@ -1050,11 +1123,14 @@ async function parseFile(file) {
     const delimiter = extension === "tsv" ? "\t" : detectDelimiter(text);
     const table = normalizeRows(parseDelimited(text, delimiter));
     const sheets = { data: table };
+    const methods = inferDatasetMethods(file.name, sheets);
     return {
       id,
       name: file.name,
       kind: inferDatasetKind(file.name, sheets),
-      methods: inferDatasetMethods(file.name, sheets),
+      type: primaryDatasetType(file.name, sheets, methods),
+      methods,
+      enabled: true,
       sheets,
     };
   }
@@ -1068,7 +1144,16 @@ async function parseFile(file) {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
     sheets[name] = normalizeRows(rows);
   });
-  return { id, name: file.name, kind: inferDatasetKind(file.name, sheets), methods: inferDatasetMethods(file.name, sheets), sheets };
+  const methods = inferDatasetMethods(file.name, sheets);
+  return {
+    id,
+    name: file.name,
+    kind: inferDatasetKind(file.name, sheets),
+    type: primaryDatasetType(file.name, sheets, methods),
+    methods,
+    enabled: true,
+    sheets,
+  };
 }
 
 function repairSheetRange(sheet) {
@@ -1151,6 +1236,28 @@ function inferDatasetMethods(name, sheets) {
   return [...methods];
 }
 
+function primaryDatasetType(name, sheets, methods = inferDatasetMethods(name, sheets)) {
+  const headers = Object.values(sheets).flatMap((table) => table.headers || []);
+  const normalizedName = String(name || "").toLowerCase();
+  if (!headers.length) return "metadata";
+  if (normalizedName.includes("gitt") && methods.includes("gitt")) return "gitt";
+  if ((normalizedName.includes("eis") || normalizedName.includes("nyquist")) && methods.includes("eis") && !hasCapacityColumn(headers)) return "eis";
+  if (normalizedName.includes("cv") && methods.includes("cv")) return "cv";
+  if ((normalizedName.includes("cd") || normalizedName.includes("cycle")) && methods.includes("cd")) return "cd";
+  if (methods.includes("rate") && hasCycleSummaryColumns(headers)) return "rate";
+  if (methods.includes("cd")) return "cd";
+  if (methods.includes("cv")) return "cv";
+  if (methods.includes("eis")) return "eis";
+  if (methods.includes("gitt")) return "gitt";
+  return methods[0] || "custom";
+}
+
+function methodsForDatasetType(type) {
+  if (type === "metadata") return [];
+  if (type === "cd") return ["cd"];
+  return [type || "custom"];
+}
+
 function parseNotes(text) {
   try {
     return JSON.parse(text);
@@ -1160,10 +1267,11 @@ function parseNotes(text) {
 }
 
 function renderDatasetControls() {
+  renderImportedFileList();
   renderPlotTabs();
   const options = datasetsForFamily(state.plotFamily);
   el.datasetSelect.innerHTML = options
-    .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)} (${dataset.methods?.join(", ") || dataset.kind})</option>`)
+    .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)} (${DATASET_TYPES[dataset.type] || dataset.type || dataset.kind})</option>`)
     .join("");
   if (!options.some((dataset) => dataset.id === state.selectedDatasetId)) {
     state.selectedDatasetId = options[0]?.id || null;
@@ -1215,21 +1323,63 @@ function renderPlotTabs() {
 
 function availablePlotFamilies() {
   const families = new Set();
-  state.datasets.forEach((dataset) => {
-    (dataset.methods || ["custom"]).forEach((method) => families.add(familyForMethod(method)));
-  });
+  state.datasets.filter(isDatasetEnabled).forEach((dataset) => families.add(datasetFamily(dataset)));
   if (!families.size) families.add("cv");
   return families;
 }
 
 function datasetsForFamily(family) {
-  return state.datasets.filter((dataset) => (dataset.methods || ["custom"]).some((method) => familyForMethod(method) === family));
+  return state.datasets
+    .filter(isDatasetEnabled)
+    .filter((dataset) => datasetFamily(dataset) === family || (family === "dqdv" && dataset.type === "cd"));
 }
 
 function selectDatasetForFamily(family) {
   const match = datasetsForFamily(family)[0];
   state.selectedDatasetId = match?.id || null;
   state.selectedSheet = preferredSheetName(match);
+}
+
+function isDatasetEnabled(dataset) {
+  return dataset?.enabled !== false && dataset.type !== "metadata";
+}
+
+function datasetFamily(dataset) {
+  return familyForMethod(dataset?.type || preferredPlotMethod(dataset));
+}
+
+function renderImportedFileList() {
+  if (!el.importedFileList) return;
+  if (!state.datasets.length) {
+    el.importedFileList.innerHTML = `<div class="file-empty">No files loaded</div>`;
+    return;
+  }
+
+  el.importedFileList.innerHTML = state.datasets.map((dataset) => {
+    const type = dataset.type || primaryDatasetType(dataset.name, dataset.sheets || {}, dataset.methods || ["custom"]);
+    const active = dataset.enabled !== false;
+    const selected = dataset.id === state.selectedDatasetId ? " selected" : "";
+    const rows = Object.values(dataset.sheets || {}).reduce((sum, table) => sum + (table.rowCount || 0), 0);
+    const typeOptions = Object.entries(DATASET_TYPES)
+      .map(([value, label]) => `<option value="${value}"${value === type ? " selected" : ""}>${label}</option>`)
+      .join("");
+    return `
+      <div class="file-item${selected}${active ? "" : " disabled"}" data-dataset-id="${dataset.id}">
+        <label class="file-check" title="Include this file in plots">
+          <input type="checkbox" data-file-action="toggle" ${active ? "checked" : ""} />
+          <span></span>
+        </label>
+        <button class="file-name" data-file-action="select" title="${escapeHtml(dataset.name)}">
+          <strong>${escapeHtml(dataset.name)}</strong>
+          <small>${escapeHtml(DATASET_TYPES[type] || type)}${rows ? ` - ${rows.toLocaleString()} rows` : ""}</small>
+        </button>
+        <select class="file-type-select" data-file-action="type" title="Override detected file type">
+          ${typeOptions}
+        </select>
+        <button class="file-delete" data-file-action="delete" title="Remove imported file">x</button>
+      </div>
+    `;
+  }).join("");
 }
 
 function familyForMethod(method) {
@@ -1502,7 +1652,7 @@ function buildCdSpec(table, dataset, preset, method) {
 
 function buildOverlayCvSpec(currentDataset) {
   const massMg = plotActiveMassMg();
-  const candidates = state.datasets
+  const candidates = datasetsForFamily("cv")
     .map((dataset) => {
       const table = tableForDatasetMethod(dataset, state.plotMethod);
       const preset = buildPlotPreset(table);
@@ -2316,7 +2466,7 @@ function renderPreview() {
 }
 
 function generateReport() {
-  const dataSets = state.datasets.filter((dataset) => Object.keys(dataset.sheets).length);
+  const dataSets = state.datasets.filter((dataset) => isDatasetEnabled(dataset) && Object.keys(dataset.sheets).length);
   const metaSets = state.datasets.filter((dataset) => dataset.kind === "metadata");
   if (!dataSets.length) {
     el.reportSheet.innerHTML = `
@@ -2591,8 +2741,7 @@ function preferredPlotMethod(dataset) {
 }
 
 function preferredPlotFamily(dataset) {
-  const preferred = preferredPlotMethod(dataset);
-  return familyForMethod(preferred);
+  return datasetFamily(dataset);
 }
 
 function syncAdvancedPlotControls() {
@@ -2788,10 +2937,13 @@ function applyMaterialPreset() {
 }
 
 function updateSessionSummary() {
-  const rows = state.datasets.reduce((sum, dataset) => {
+  const active = state.datasets.filter(isDatasetEnabled);
+  const rows = active.reduce((sum, dataset) => {
     return sum + Object.values(dataset.sheets).reduce((inner, table) => inner + table.rowCount, 0);
   }, 0);
-  el.sessionSummary.textContent = `${state.datasets.length} file(s), ${rows.toLocaleString()} parsed rows`;
+  el.sessionSummary.textContent = state.datasets.length
+    ? `${active.length}/${state.datasets.length} file(s) active, ${rows.toLocaleString()} parsed rows`
+    : "No files loaded";
 }
 
 function detectDelimiter(text) {
