@@ -1854,6 +1854,10 @@ input[type="color"]:disabled {
   gap: 12px;
 }
 
+.advanced-controls[hidden] {
+  display: none;
+}
+
 .advanced-controls summary {
   cursor: pointer;
   color: var(--muted);

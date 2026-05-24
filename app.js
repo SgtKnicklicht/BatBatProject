@@ -1630,7 +1630,7 @@ function buildCdSpec(table, dataset, preset, method) {
   }
   const colors = gradientColors(state.plotGradient, selectedGroups.length || 1);
   const traces = selectedGroups.map(([cycle, rows], index) => {
-    const style = plotTraceStyle(index, { color: state.plotAutoColor ? colors[index] : undefined });
+    const style = plotTraceStyle(index, { color: colors[index] });
     const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, method !== "cd-time");
     return {
       x: series.x,
@@ -1669,7 +1669,7 @@ function buildOverlayCvSpec(currentDataset) {
     const groups = selectedCycleGroups(allGroups);
     const visibleGroups = cycleColumn ? (groups.length ? groups : allGroups) : [[null, table.rows]];
     return visibleGroups.map(([cycle, rows], groupIndex) => {
-      const style = plotTraceStyle(index + groupIndex, { color: state.plotAutoColor ? colors[index] : undefined });
+      const style = plotTraceStyle(index + groupIndex, { color: colors[index] });
       const series = pairedSeriesWithBreaks(rows, preset.xColumn, preset.yColumns[0], state.plotMethod, massMg, false);
       return {
         x: series.x,
@@ -1722,8 +1722,7 @@ function buildDqdvSpec(table, dataset, preset) {
     rawPointCount += raw.y.filter(Number.isFinite).length;
     const processed = processDqdvSegments(qv, requestedStep, minDv);
     processedCount += processed.y.filter(Number.isFinite).length;
-    const color = state.plotAutoColor ? colors[groupIndex] : undefined;
-    const style = plotTraceStyle(groupIndex, { color });
+    const style = plotTraceStyle(groupIndex, { color: colors[groupIndex] });
 
     if (state.dqdvShowRaw && raw.x.length) {
       traces.push({
