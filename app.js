@@ -29,7 +29,7 @@ const DEFAULT_CALC_STANDARDS = {
 const PLOT_METHODS = {
   cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
-  "cd-time": { short: "V-t", hint: "CD voltage vs time by cycle", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
+  "cd-time": { short: "V-t", hint: "CD voltage vs total time", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   rate: { short: "Rate", hint: "capacity vs cycle", colors: ["#5b02a3", "#9c179e", "#cc4778", "#ed7953"] },
   dqdv: { short: "dQ/dV", hint: "derivative curve", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
   eis: { short: "EIS", hint: "Nyquist", colors: ["#0d0887", "#2563eb", "#22a7f0", "#5b02a3"] },
@@ -1612,7 +1612,7 @@ function buildPlotPreset(table, method = state.plotMethod) {
   const headers = table.headers;
   const voltage = voltageColumn(headers);
   const current = currentColumn(headers);
-  const time = findColumn(headers, ["Elapsed Time (s)", "Total Time", "Time", "Test Time", "Step Time"]);
+  const time = totalTimeColumn(headers) || findColumn(headers, ["Elapsed Time (s)", "Total Time", "Test Time", "Time", "Step Time"]);
   const charge = capacityColumn(headers);
   const cycle = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
   const dchg = findColumn(headers, ["DChg. Cap.(Ah)", "Discharge Capacity", "DChg Cap", "Capacity(Ah)"]);
@@ -1745,9 +1745,8 @@ function buildCdSpec(table, dataset, preset, method) {
   const traces = selectedGroups.map(([cycle, rows], index) => {
     const style = plotTraceStyle(index, { color: colors[index] });
     const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, method !== "cd-time");
-    const xValues = method === "cd-time" ? relativeXValues(series.x) : series.x;
     return {
-      x: xValues,
+      x: series.x,
       y: series.y,
       type: "scatter",
       mode: "lines",
@@ -1762,14 +1761,8 @@ function buildCdSpec(table, dataset, preset, method) {
     title: plotTitle(dataset),
     xTitle: xSeries.title,
     yTitle: ySeries.title,
-    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown relative to each cycle." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
+    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
-}
-
-function relativeXValues(values) {
-  const first = values.find((value) => Number.isFinite(value));
-  if (!Number.isFinite(first)) return values;
-  return values.map((value) => (Number.isFinite(value) ? value - first : value));
 }
 
 function buildOverlayCvSpec(currentDataset) {
@@ -2283,6 +2276,25 @@ function isCurrentColumn(column) {
 function isTimeColumn(column) {
   const lower = column.toLowerCase();
   return lower.includes("time") || lower.includes("elapsed") || lower.includes("t/s");
+}
+
+function totalTimeColumn(headers) {
+  const preferred = ["Total Time", "Total Time (s)", "Test Time", "Test Time (s)", "Elapsed Time", "Elapsed Time (s)"];
+  const exact = exactColumn(headers, preferred);
+  if (exact) return exact;
+
+  const totalLike = headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return (
+      (normalized.includes("totaltime") ||
+        normalized.includes("testtime") ||
+        normalized.includes("elapsedtime") ||
+        normalized.includes("runtime")) &&
+      !normalized.includes("steptime") &&
+      !normalized.includes("cycletime")
+    );
+  });
+  return totalLike || "";
 }
 
 function isCapacityColumn(column) {
