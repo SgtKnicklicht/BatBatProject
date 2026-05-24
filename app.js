@@ -1467,7 +1467,10 @@ function renderPlotTabs() {
 
 function availablePlotFamilies() {
   const families = new Set();
-  state.datasets.filter(isDatasetEnabled).forEach((dataset) => families.add(datasetFamily(dataset)));
+  state.datasets.filter(isDatasetEnabled).forEach((dataset) => {
+    families.add(datasetFamily(dataset));
+    if (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type)) families.add("dqdv");
+  });
   if (!families.size) families.add("cv");
   return families;
 }
@@ -1475,7 +1478,10 @@ function availablePlotFamilies() {
 function datasetsForFamily(family) {
   return state.datasets
     .filter(isDatasetEnabled)
-    .filter((dataset) => datasetFamily(dataset) === family || (family === "dqdv" && dataset.type === "cd"));
+    .filter((dataset) => {
+      if (datasetFamily(dataset) === family) return true;
+      return family === "dqdv" && (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type));
+    });
 }
 
 function selectDatasetForFamily(family) {
@@ -1605,6 +1611,7 @@ function plot2dLayout(plotSpec, theme) {
       tickcolor: "#2563eb",
       zeroline: false,
     };
+    if (plotSpec.y2Range) layout.yaxis2.range = plotSpec.y2Range;
   }
   return layout;
 }
@@ -1851,6 +1858,11 @@ function buildCdSpec(table, dataset, preset, method) {
 }
 
 function buildRateSpec(table, dataset, method) {
+  const repaired = buildRepairedRateSummary(dataset, method);
+  if (repaired?.cycles?.length) {
+    return buildRepairedRateSpec(repaired, dataset, method);
+  }
+
   const headers = table.headers;
   const massMg = plotActiveMassMg();
   const massG = massMg ? massMg / 1000 : 0;
@@ -1917,6 +1929,62 @@ function buildRateSpec(table, dataset, method) {
     yTitle,
     y2Title: ce.some(Number.isFinite) ? "CE [%]" : "",
     hint: `${method === "rate-time" ? "Total elapsed test time from step timestamps. " : ""}Discharge black, charge red, CE blue on right axis.`,
+  };
+}
+
+function buildRepairedRateSpec(summary, dataset, method) {
+  const filtered = filteredRateSummary(summary);
+  if (!filtered.cycles.length) {
+    return { traces: [], message: "No repaired rate cycles matched the cycle filter." };
+  }
+  const x = method === "rate-time" ? filtered.timeHours : filtered.cycles;
+  const mode = state.plotMode;
+  const markerLine = state.plotTheme === "light" ? { color: "#ffffff", width: 0.6 } : { color: "#12091f", width: 0.6 };
+  const traces = [];
+
+  if (filtered.discharge.some(Number.isFinite)) {
+    traces.push({
+      x,
+      y: filtered.discharge,
+      type: "scatter",
+      mode,
+      name: summary.specific ? "Discharge specific capacity" : "Discharge capacity",
+      line: { color: "#111111", width: state.plotLineWidth },
+      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (filtered.charge.some(Number.isFinite)) {
+    traces.push({
+      x,
+      y: filtered.charge,
+      type: "scatter",
+      mode,
+      name: summary.specific ? "Charge specific capacity" : "Charge capacity",
+      line: { color: "#ef4444", width: state.plotLineWidth },
+      marker: { color: "#ef4444", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (filtered.ce.some(Number.isFinite)) {
+    traces.push({
+      x,
+      y: filtered.ce,
+      yaxis: "y2",
+      type: "scatter",
+      mode,
+      name: "CE",
+      line: { color: "#2563eb", width: state.plotLineWidth },
+      marker: { color: "#2563eb", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+
+  return {
+    traces,
+    title: plotTitle(dataset),
+    xTitle: method === "rate-time" ? "Total time [h]" : "Repaired cycle index",
+    yTitle: summary.specific ? "Specific capacity [mAh/g]" : "Capacity [mAh]",
+    y2Title: filtered.ce.some(Number.isFinite) ? "CE [%]" : "",
+    y2Range: [0, 110],
+    hint: `${filtered.cycles.length} of ${summary.cycles.length} repaired cycle(s) shown from ${summary.source}. Discharge black, charge red, CE blue. Original Neware cycle grouping is bypassed.`,
   };
 }
 
@@ -2023,8 +2091,7 @@ function buildDqdvSpec(table, dataset, preset) {
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "dQ/dV needs voltage and capacity columns from cycling data." };
   }
-  const cycleColumn = findCycleColumn(table.headers, table.rows);
-  const groups = selectedCycleGroups(cycleGroupsForPlot(table.rows, cycleColumn, preset.yColumns[0]));
+  const groups = dqdvGroupsForPlot(table, dataset, preset.yColumns[0]);
   if (!groups.length) return { traces: [], message: "No cycles matched the cycle filter." };
 
   const minDv = state.dqdvMinDvMv / 1000;
@@ -2653,6 +2720,205 @@ function rateCapacityValues(rows, specificColumn, capacityColumnName, massG) {
   return massG ? capacity.map((value) => value / massG) : capacity;
 }
 
+function buildRepairedRateSummary(dataset) {
+  const massMg = plotActiveMassMg();
+  const massG = massMg ? massMg / 1000 : 0;
+  const fromSteps = repairedRateSummaryFromSteps(dataset?.sheets?.step, massG);
+  if (fromSteps?.cycles?.length) return fromSteps;
+  return repairedRateSummaryFromRecords(dataset?.sheets?.record || dataset?.sheets?.data, massG);
+}
+
+function repairedRateSummaryFromSteps(stepTable, massG) {
+  if (!stepTable?.rows?.length) return null;
+  const headers = stepTable.headers;
+  const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
+  const capacityCol = capacityColumn(headers);
+  const startColumn = findColumn(headers, ["Oneset Date", "Onset Date", "Start Date", "Start Time"]);
+  const endColumn = findColumn(headers, ["End Date", "End Time"]);
+  if (!typeColumn || !capacityCol) return null;
+
+  let testStart = Infinity;
+  const charge = [];
+  const discharge = [];
+  let current = null;
+  const flushCurrent = () => {
+    if (!current) return;
+    if (current.kind === "charge") charge.push(current);
+    if (current.kind === "discharge") discharge.push(current);
+    current = null;
+  };
+  stepTable.rows.forEach((row) => {
+    const kind = stepTypeKind(row[typeColumn]);
+    if (!kind) {
+      flushCurrent();
+      return;
+    }
+    const capacity = capacityToMAh(readNumber(row[capacityCol]), capacityCol);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      flushCurrent();
+      return;
+    }
+    const startMs = dateValueToMs(row[startColumn]);
+    const endMs = dateValueToMs(row[endColumn]);
+    if (Number.isFinite(startMs)) testStart = Math.min(testStart, startMs);
+    if (!current || current.kind !== kind) {
+      flushCurrent();
+      current = { kind, capacity: 0, endMs: -Infinity };
+    }
+    current.capacity += capacity;
+    if (Number.isFinite(endMs)) current.endMs = Math.max(current.endMs, endMs);
+  });
+  flushCurrent();
+  if (!charge.length && !discharge.length) return null;
+
+  const count = Math.max(charge.length, discharge.length);
+  const cycles = Array.from({ length: count }, (_, index) => index + 1);
+  const timeHours = cycles.map((_, index) => {
+    const end = Math.max(charge[index]?.endMs ?? -Infinity, discharge[index]?.endMs ?? -Infinity);
+    return Number.isFinite(end) && Number.isFinite(testStart) ? (end - testStart) / 3600000 : index + 1;
+  });
+  return normalizeRateSummary({
+    cycles,
+    charge: charge.map((item) => item.capacity),
+    discharge: discharge.map((item) => item.capacity),
+    timeHours,
+    massG,
+    source: "repaired step segments",
+  });
+}
+
+function repairedRateSummaryFromRecords(recordTable, massG) {
+  if (!recordTable?.rows?.length) return null;
+  const typeColumn = findColumn(recordTable.headers, ["Step Type", "Step Name", "State"]);
+  const capacityCol = capacityColumn(recordTable.headers);
+  const timeColumn = totalTimeColumn(recordTable.headers) || findColumn(recordTable.headers, ["Time", "Elapsed Time"]);
+  if (!typeColumn || !capacityCol) return null;
+
+  const groups = electrochemicalStepGroups(recordTable.rows, recordTable.headers);
+  const charge = [];
+  const discharge = [];
+  groups.forEach(([, rows]) => {
+    const kind = stepTypeKind(rows[0]?.[typeColumn]);
+    const capacity = segmentCapacityMAh(rows, capacityCol);
+    const last = rows[rows.length - 1];
+    const timeHours = timeColumn ? timeValueToHours(last?.[timeColumn], timeColumn) : NaN;
+    if (!Number.isFinite(capacity) || capacity <= 0) return;
+    const segment = { capacity, timeHours };
+    if (kind === "charge") charge.push(segment);
+    if (kind === "discharge") discharge.push(segment);
+  });
+  if (!charge.length && !discharge.length) return null;
+
+  const count = Math.max(charge.length, discharge.length);
+  return normalizeRateSummary({
+    cycles: Array.from({ length: count }, (_, index) => index + 1),
+    charge: charge.map((item) => item.capacity),
+    discharge: discharge.map((item) => item.capacity),
+    timeHours: Array.from({ length: count }, (_, index) => {
+      const time = Math.max(charge[index]?.timeHours ?? -Infinity, discharge[index]?.timeHours ?? -Infinity);
+      return Number.isFinite(time) ? time : index + 1;
+    }),
+    massG,
+    source: "repaired record segments",
+  });
+}
+
+function normalizeRateSummary(summary) {
+  const count = summary.cycles.length;
+  const charge = Array.from({ length: count }, (_, index) => summary.charge[index] ?? NaN);
+  const discharge = Array.from({ length: count }, (_, index) => summary.discharge[index] ?? NaN);
+  const toSpecific = (value) => (summary.massG && Number.isFinite(value) ? value / summary.massG : value);
+  return {
+    cycles: summary.cycles,
+    timeHours: Array.from({ length: count }, (_, index) => summary.timeHours[index] ?? index + 1),
+    charge: charge.map(toSpecific),
+    discharge: discharge.map(toSpecific),
+    ce: charge.map((chg, index) => {
+      const dchg = discharge[index];
+      return Number.isFinite(chg) && chg > 0 && Number.isFinite(dchg) ? (dchg / chg) * 100 : NaN;
+    }),
+    specific: Boolean(summary.massG),
+    source: summary.source,
+  };
+}
+
+function filteredRateSummary(summary) {
+  const allowed = parseCycleFilter(state.cycleFilter, summary.cycles);
+  const step = Math.max(1, state.cycleStep || 1);
+  const indexes = summary.cycles
+    .map((cycle, index) => ({ cycle, index }))
+    .filter(({ cycle }) => allowed.has(cycle))
+    .filter((_, visibleIndex) => visibleIndex % step === 0)
+    .map(({ index }) => index);
+  return {
+    cycles: indexes.map((index) => summary.cycles[index]),
+    timeHours: indexes.map((index) => summary.timeHours[index]),
+    charge: indexes.map((index) => summary.charge[index]),
+    discharge: indexes.map((index) => summary.discharge[index]),
+    ce: indexes.map((index) => summary.ce[index]),
+  };
+}
+
+function stepTypeKind(value) {
+  const text = String(value || "").toLowerCase();
+  if (!text) return "";
+  if (text.includes("rest") || text.includes("pause") || text.includes("ocv")) return "";
+  if (text.includes("dchg") || text.includes("discharge") || text.includes("dch")) return "discharge";
+  if (text.includes("chg") || text.includes("charge")) return "charge";
+  return "";
+}
+
+function segmentCapacityMAh(rows, capacityCol) {
+  const values = rows
+    .map((row) => capacityToMAh(readNumber(row[capacityCol]), capacityCol))
+    .filter(Number.isFinite);
+  if (values.length < 2) return NaN;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return Math.max(Math.abs(values[values.length - 1] - values[0]), max - min);
+}
+
+function dqdvGroupsForPlot(table, dataset, capacityCol) {
+  const cycleColumn = findCycleColumn(table.headers, table.rows);
+  if (cycleColumn) return selectedCycleGroups(cycleGroupsForPlot(table.rows, cycleColumn, capacityCol));
+  const stepGroups = electrochemicalStepGroups(table.rows, table.headers);
+  if (stepGroups.length > 1) return selectedCycleGroups(stepGroups);
+  const inferred = cycleGroupsForPlot(table.rows, cycleColumn, capacityCol);
+  return selectedCycleGroups(inferred);
+}
+
+function electrochemicalStepGroups(rows, headers) {
+  const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
+  const capacityCol = capacityColumn(headers);
+  const voltageCol = voltageColumn(headers);
+  if (!typeColumn || !capacityCol || !voltageCol) return [];
+  const groups = [];
+  let current = [];
+  let currentKind = "";
+  rows.forEach((row) => {
+    const kind = stepTypeKind(row[typeColumn]);
+    const voltage = readNumber(row[voltageCol]);
+    const capacity = readNumber(row[capacityCol]);
+    if (!kind || !Number.isFinite(voltage) || !Number.isFinite(capacity)) {
+      if (current.length >= 8) groups.push([groups.length + 1, current]);
+      current = [];
+      currentKind = "";
+      return;
+    }
+    if (currentKind && kind !== currentKind) {
+      if (current.length >= 8) groups.push([groups.length + 1, current]);
+      current = [];
+    }
+    current.push(row);
+    currentKind = kind;
+  });
+  if (current.length >= 8) groups.push([groups.length + 1, current]);
+  return groups.filter(([, groupRows]) => {
+    const capacity = segmentCapacityMAh(groupRows, capacityCol);
+    return Number.isFinite(capacity) && capacity > 1e-6;
+  });
+}
+
 function rateTotalTimeSeries(dataset, cycleTable, cycleColumn) {
   const cycles = numericSeries(cycleTable.rows, cycleColumn);
   const fromSteps = cycleEndHoursFromSteps(dataset?.sheets?.step, cycles);
@@ -3278,8 +3544,8 @@ function preferredSheetName(dataset, method = state.plotMethod) {
   const names = Object.keys(dataset.sheets);
   const lower = (name) => name.toLowerCase();
   const byMethod = {
-    rate: ["cycle", "summary"],
-    "rate-time": ["cycle", "summary"],
+    rate: ["step", "record", "cycle", "summary"],
+    "rate-time": ["step", "record", "cycle", "summary"],
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
     "cd-time": ["record", "data", "cycle"],
@@ -3335,7 +3601,7 @@ function syncAdvancedPlotControls() {
     el.dqdvControls.open = state.plotMethod === "dqdv";
   }
   if (el.cycleControls) {
-    el.cycleControls.hidden = !["cd", "cd-time", "dqdv"].includes(state.plotMethod);
+    el.cycleControls.hidden = !["cd", "cd-time", "rate", "rate-time", "dqdv"].includes(state.plotMethod);
   }
 }
 
