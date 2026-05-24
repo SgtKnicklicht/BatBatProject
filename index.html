@@ -166,6 +166,26 @@
                 <button data-theme="dark">Dark plot</button>
               </div>
 
+              <details class="advanced-controls style-controls" id="plotStyleControls">
+                <summary>Style</summary>
+                <label class="toggle-row">
+                  <input id="plotAutoColorInput" type="checkbox" checked />
+                  Auto scheme
+                </label>
+                <label class="color-control">
+                  Color
+                  <input id="plotColorInput" type="color" value="#2563eb" />
+                </label>
+                <label>
+                  Line width <span id="plotLineWidthValue">2.4</span>
+                  <input id="plotLineWidthInput" type="range" min="0.8" max="6" step="0.2" value="2.4" />
+                </label>
+                <label>
+                  Point size <span id="plotMarkerSizeValue">5</span>
+                  <input id="plotMarkerSizeInput" type="range" min="2" max="14" step="1" value="5" />
+                </label>
+              </details>
+
               <details class="advanced-controls" id="advancedPlotControls">
                 <summary>Custom axes</summary>
                 <label>
@@ -195,15 +215,15 @@
                 </label>
                 <label>
                   Plot
-                  <select id="plotMethodSelect">
-                    <option value="cv">CV: current vs voltage</option>
-                    <option value="cv-specific">CV: specific current vs voltage</option>
-                    <option value="cd">CD: voltage vs capacity</option>
-                    <option value="rate">Rate scan: capacity vs cycle</option>
-                    <option value="dqdv">dQ/dV: derivative curve</option>
-                    <option value="eis">EIS: Nyquist</option>
-                    <option value="gitt">GITT: voltage vs time</option>
-                    <option value="custom">Custom axes</option>
+                  <select id="plotMethodSelect" class="method-select">
+                    <option value="cv" title="current vs voltage">CV</option>
+                    <option value="cv-specific" title="specific current vs voltage">CV spec.</option>
+                    <option value="cd" title="voltage vs capacity">CD</option>
+                    <option value="rate" title="capacity vs cycle">Rate</option>
+                    <option value="dqdv" title="derivative curve">dQ/dV</option>
+                    <option value="eis" title="Nyquist">EIS</option>
+                    <option value="gitt" title="voltage vs time">GITT</option>
+                    <option value="custom" title="custom axes">Custom</option>
                   </select>
                 </label>
                 <div class="plot-hint" id="datasetStats"></div>

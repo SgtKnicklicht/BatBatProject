@@ -11,6 +11,16 @@ const DEFAULT_TEAM_MEMBERS = [
   { id: "member-3", name: "Member 3", color: "#cc4778" },
   { id: "member-4", name: "Member 4", color: "#fdb42f" },
 ];
+const PLOT_METHODS = {
+  cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
+  "cv-specific": { short: "CV spec.", hint: "specific current vs voltage", colors: ["#404040", "#ef4444", "#1f6feb", "#a21caf"] },
+  cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
+  rate: { short: "Rate", hint: "capacity vs cycle", colors: ["#5b02a3", "#9c179e", "#cc4778", "#ed7953"] },
+  dqdv: { short: "dQ/dV", hint: "derivative curve", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
+  eis: { short: "EIS", hint: "Nyquist", colors: ["#0d0887", "#2563eb", "#22a7f0", "#5b02a3"] },
+  gitt: { short: "GITT", hint: "voltage vs time", colors: ["#ed7953", "#fdb42f", "#cc4778", "#5b02a3"] },
+  custom: { short: "Custom", hint: "custom axes", colors: ["#0d0887", "#9c179e", "#ed7953", "#f0f921"] },
+};
 
 const state = {
   reservations: [],
@@ -31,6 +41,10 @@ const state = {
   plotMode: "lines",
   plotTheme: "light",
   plotMethod: "cv",
+  plotAutoColor: true,
+  plotColor: "#2563eb",
+  plotLineWidth: 2.4,
+  plotMarkerSize: 5,
 };
 
 const el = {
@@ -65,6 +79,12 @@ const el = {
   plotMethodSelect: document.querySelector("#plotMethodSelect"),
   plotBatteryNameInput: document.querySelector("#plotBatteryNameInput"),
   plotActiveMassInput: document.querySelector("#plotActiveMassInput"),
+  plotAutoColorInput: document.querySelector("#plotAutoColorInput"),
+  plotColorInput: document.querySelector("#plotColorInput"),
+  plotLineWidthInput: document.querySelector("#plotLineWidthInput"),
+  plotLineWidthValue: document.querySelector("#plotLineWidthValue"),
+  plotMarkerSizeInput: document.querySelector("#plotMarkerSizeInput"),
+  plotMarkerSizeValue: document.querySelector("#plotMarkerSizeValue"),
   advancedPlotControls: document.querySelector("#advancedPlotControls"),
   plotCanvas: document.querySelector("#plotCanvas"),
   datasetStats: document.querySelector("#datasetStats"),
@@ -739,6 +759,7 @@ function bindFiles() {
   el.yColumnSelect.addEventListener("change", renderPlot);
   el.plotMethodSelect.addEventListener("change", () => {
     state.plotMethod = el.plotMethodSelect.value;
+    applyMethodStyleDefaults();
     syncAdvancedPlotControls();
     renderColumnControls();
     renderPlot();
@@ -746,6 +767,7 @@ function bindFiles() {
   bindDecimalInput(el.plotActiveMassInput);
   el.plotBatteryNameInput.addEventListener("input", renderPlot);
   el.plotActiveMassInput.addEventListener("input", renderPlot);
+  bindPlotStyleControls();
   el.plotMode.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
       state.plotMode = button.dataset.mode;
@@ -767,6 +789,33 @@ function bindFiles() {
   el.exportPlotBtn.addEventListener("click", exportPlot);
   el.exportSelectedCsvBtn.addEventListener("click", exportSelectedCsv);
   el.exportWorkbookZipBtn.addEventListener("click", exportAllCsv);
+}
+
+function bindPlotStyleControls() {
+  if (!el.plotAutoColorInput) return;
+  const syncStyleInputs = () => {
+    state.plotAutoColor = el.plotAutoColorInput.checked;
+    state.plotColor = el.plotColorInput.value;
+    state.plotLineWidth = readNumber(el.plotLineWidthInput.value) || 2.4;
+    state.plotMarkerSize = readNumber(el.plotMarkerSizeInput.value) || 5;
+    el.plotColorInput.disabled = state.plotAutoColor;
+    el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
+    el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
+    renderPlot();
+  };
+  el.plotAutoColorInput.addEventListener("change", syncStyleInputs);
+  el.plotColorInput.addEventListener("input", syncStyleInputs);
+  el.plotLineWidthInput.addEventListener("input", syncStyleInputs);
+  el.plotMarkerSizeInput.addEventListener("input", syncStyleInputs);
+  applyMethodStyleDefaults();
+  syncStyleInputs();
+}
+
+function applyMethodStyleDefaults() {
+  if (!el.plotAutoColorInput?.checked) return;
+  const color = plotMethodColors()[0] || "#2563eb";
+  state.plotColor = color;
+  if (el.plotColorInput) el.plotColorInput.value = color;
 }
 
 function bindReports() {
@@ -963,11 +1012,20 @@ function renderPlot() {
     paper_bgcolor: theme.paper,
     plot_bgcolor: theme.plot,
     font: { color: theme.text },
-    margin: { t: 60, r: 26, b: 58, l: 64 },
-    xaxis: { title: plotSpec.xTitle, gridcolor: theme.grid, zerolinecolor: theme.zero },
-    yaxis: { title: plotSpec.yTitle, gridcolor: theme.grid, zerolinecolor: theme.zero },
-    legend: { orientation: "h", y: -0.22, font: { color: theme.text } },
-    colorway: plasmaColors(),
+    margin: { t: 62, r: 34, b: 72, l: 86 },
+    xaxis: plotAxisLayout(plotSpec.xTitle, theme),
+    yaxis: plotAxisLayout(plotSpec.yTitle, theme),
+    legend: {
+      bgcolor: theme.legend,
+      bordercolor: theme.axis,
+      borderwidth: 1,
+      font: { color: theme.text, size: 15 },
+      x: 0.98,
+      xanchor: "right",
+      y: 0.02,
+      yanchor: "bottom",
+    },
+    colorway: plotMethodColors(),
   }, { responsive: true, displaylogo: false });
 
   attachMiddleAutoscale(el.plotCanvas);
@@ -1036,8 +1094,8 @@ function buildPlotPreset(table) {
   const charge = findColumn(headers, ["Cumulative Charge (mAh)", "Capacity(Ah)", "Chg. Cap.(Ah)", "DChg. Cap.(Ah)", "Capacity"]);
   const cycle = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
   const dchg = findColumn(headers, ["DChg. Cap.(Ah)", "Discharge Capacity", "DChg Cap", "Capacity(Ah)"]);
-  const zReal = findColumn(headers, ["Zreal", "Z Real", "Re(Z)", "Real Impedance", "Z' (ohms)"]);
-  const zImag = findColumn(headers, ["Zimag", "Z Imag", "-Im(Z)", "Imaginary Impedance", "Z'' (ohms)"]);
+  const zReal = findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]);
+  const zImag = findColumn(headers, ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance", "Z'' (ohms)", "Z'' (ohm)"]);
 
   const presets = {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
@@ -1086,16 +1144,17 @@ function buildPlotSpec(table, dataset) {
   }
 
   const xSeries = transformAxisValues(table.rows, preset.xColumn, "x", method, massMg);
-  const traces = preset.yColumns.map((column) => {
+  const traces = preset.yColumns.map((column, index) => {
     const ySeries = transformAxisValues(table.rows, column, "y", method, massMg);
+    const style = plotTraceStyle(index, { markerSize: method === "rate" ? 7 : undefined });
     return {
       x: xSeries.values,
       y: ySeries.values,
       type: "scatter",
       mode: preset.mode || state.plotMode,
       name: ySeries.title,
-      line: { width: 2.5 },
-      marker: { size: method === "rate" ? 7 : 4 },
+      line: style.line,
+      marker: style.marker,
     };
   });
 
@@ -1114,16 +1173,17 @@ function buildCustomPlotSpec(table, dataset, xColumn, yColumns) {
   }
   const xSeries = transformAxisValues(table.rows, xColumn, "x", "custom", plotActiveMassMg());
   return {
-    traces: yColumns.map((column) => {
+    traces: yColumns.map((column, index) => {
       const ySeries = transformAxisValues(table.rows, column, "y", "custom", plotActiveMassMg());
+      const style = plotTraceStyle(index);
       return {
         x: xSeries.values,
         y: ySeries.values,
         type: "scatter",
         mode: state.plotMode,
         name: ySeries.title,
-        line: { width: 2.4 },
-        marker: { size: 5 },
+        line: style.line,
+        marker: style.marker,
       };
     }),
     title: plotTitle(dataset),
@@ -1157,13 +1217,13 @@ function buildDqdvSpec(table, dataset, preset) {
         y,
         type: "scatter",
         mode: "lines",
-        name: massMg ? "dQ/dV (mAh/g/V)" : "dQ/dV (mAh/V)",
-        line: { width: 2.4 },
+        name: massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]",
+        line: plotTraceStyle(0).line,
       },
     ],
     title: plotTitle(dataset),
-    xTitle: "Voltage (V)",
-    yTitle: massMg ? "dQ/dV (mAh/g/V)" : "dQ/dV (mAh/V)",
+    xTitle: "Voltage [V]",
+    yTitle: massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]",
     hint: massMg ? "dQ/dV normalized by active mass." : "Enter active mass to show specific dQ/dV.",
   };
 }
@@ -1173,7 +1233,9 @@ function buildEisSpec(table, dataset, preset) {
     return { traces: [], message: "EIS needs real and imaginary impedance columns." };
   }
   const x = numericSeries(table.rows, preset.xColumn);
-  const y = numericSeries(table.rows, preset.yColumns[0]).map((value) => -value);
+  const yColumn = preset.yColumns[0];
+  const y = numericSeries(table.rows, yColumn).map((value) => (isNegativeImaginaryColumn(yColumn) ? value : -value));
+  const style = plotTraceStyle(0);
   return {
     traces: [
       {
@@ -1181,14 +1243,14 @@ function buildEisSpec(table, dataset, preset) {
         y,
         type: "scatter",
         mode: "lines+markers",
-        name: "-Zimag",
-        line: { width: 2.2 },
-        marker: { size: 6 },
+        name: "-Z<sub>im</sub>",
+        line: style.line,
+        marker: style.marker,
       },
     ],
     title: plotTitle(dataset),
-    xTitle: "Zreal (ohm)",
-    yTitle: "-Zimag (ohm)",
+    xTitle: "Z<sub>real</sub> [ohm]",
+    yTitle: "-Z<sub>im</sub> [ohm]",
     hint: "Nyquist preset.",
   };
 }
@@ -1201,27 +1263,27 @@ function transformAxisValues(rows, column, axis, method, massMg) {
   if (axis === "y" && isCurrentColumn(column)) {
     const currentMA = values.map((value) => currentToMA(value, column));
     if (method === "cv-specific" && massG) {
-      return { values: currentMA.map((value) => value / massG), title: "Specific current (mA/g)" };
+      return { values: currentMA.map((value) => value / massG), title: "Specific current [mA/g]" };
     }
-    return { values: currentMA, title: "Current (mA)" };
+    return { values: currentMA, title: "Current [mA]" };
   }
 
   if (isTimeColumn(column)) {
-    return { values: values.map((value) => timeToHours(value, column)), title: "Time (h)" };
+    return { values: values.map((value) => timeToHours(value, column)), title: "Time [h]" };
   }
 
   if (isCapacityColumn(column)) {
     const capacityMAh = values.map((value) => capacityToMAh(value, column));
     if (axis === "x" && method === "cd" && massG) {
-      return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity (mAh/g)" };
+      return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
     if (axis === "y" && (method === "rate" || method === "cd") && massG) {
-      return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity (mAh/g)" };
+      return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
-    return { values: capacityMAh, title: "Capacity (mAh)" };
+    return { values: capacityMAh, title: "Capacity [mAh]" };
   }
 
-  return { values, title: column };
+  return { values, title: axisTitleFromColumn(column) };
 }
 
 function numericSeries(rows, column) {
@@ -1250,6 +1312,45 @@ function isCapacityColumn(column) {
   return lower.includes("cap") || lower.includes("charge") || lower.includes("q/");
 }
 
+function axisTitleFromColumn(column) {
+  if (isVoltageColumn(column)) return "Voltage [V]";
+  if (isCurrentColumn(column)) return "Current [mA]";
+  if (isTimeColumn(column)) return "Time [h]";
+  if (isCapacityColumn(column)) return "Capacity [mAh]";
+  if (isRealImpedanceColumn(column)) return "Z<sub>real</sub> [ohm]";
+  if (isImaginaryImpedanceColumn(column)) return "-Z<sub>im</sub> [ohm]";
+  return unitTitle(column);
+}
+
+function unitTitle(column) {
+  const text = String(column || "").trim();
+  const parenthetical = text.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (parenthetical) return `${parenthetical[1].trim()} [${parenthetical[2].trim()}]`;
+  const slash = text.match(/^(.*?)\/([A-Za-z][A-Za-z0-9^.-]*)$/);
+  if (slash) return `${slash[1].trim()} [${slash[2].trim()}]`;
+  return text;
+}
+
+function isVoltageColumn(column) {
+  const lower = column.toLowerCase();
+  return lower.includes("voltage") || lower.includes("electrode") || lower.includes("ewe") || lower.includes("(v)");
+}
+
+function isRealImpedanceColumn(column) {
+  const normalized = normalizeColumnName(column);
+  return normalized.includes("zreal") || normalized.includes("rez") || normalized.includes("realimpedance");
+}
+
+function isImaginaryImpedanceColumn(column) {
+  const normalized = normalizeColumnName(column);
+  return normalized.includes("zimag") || normalized.includes("imz") || normalized.includes("imaginaryimpedance");
+}
+
+function isNegativeImaginaryColumn(column) {
+  const lower = String(column || "").toLowerCase();
+  return lower.includes("-im") || lower.includes("-z") || lower.includes("minus");
+}
+
 function capacityToMAh(value, column) {
   const lower = column.toLowerCase();
   return lower.includes("mah") || lower.includes("ma.h") || lower.includes("ma h") ? value : value * 1000;
@@ -1268,12 +1369,15 @@ function plotActiveMassMg() {
 
 function plotTitle(dataset) {
   const name = el.plotBatteryNameInput.value.trim() || dataset.name;
-  return `${name} - ${plotMethodLabel()}`;
+  return `${name} - ${plotMethodLabel()} ${plotMethodHint()}`;
 }
 
 function plotMethodLabel() {
-  const selected = el.plotMethodSelect.selectedOptions[0];
-  return selected ? selected.textContent.replace(/:.*/, "") : "Plot";
+  return PLOT_METHODS[state.plotMethod]?.short || "Plot";
+}
+
+function plotMethodHint() {
+  return PLOT_METHODS[state.plotMethod]?.hint || "";
 }
 
 function plotHintText(method, massMg) {
@@ -1304,8 +1408,40 @@ function normalizeColumnName(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function plotTraceStyle(index, options = {}) {
+  const color = state.plotAutoColor ? plotMethodColors()[index % plotMethodColors().length] : state.plotColor;
+  return {
+    line: { color, width: state.plotLineWidth },
+    marker: {
+      color,
+      size: options.markerSize || state.plotMarkerSize,
+      line: { color: "#111111", width: state.plotTheme === "light" ? 0.4 : 0 },
+    },
+  };
+}
+
+function plotMethodColors() {
+  return PLOT_METHODS[state.plotMethod]?.colors || plasmaColors();
+}
+
 function plasmaColors() {
   return ["#0d0887", "#5b02a3", "#9c179e", "#cc4778", "#ed7953", "#fdb42f", "#f0f921"];
+}
+
+function plotAxisLayout(title, theme) {
+  return {
+    title: { text: title, font: { size: 18, color: theme.text } },
+    gridcolor: theme.grid,
+    zerolinecolor: theme.zero,
+    linecolor: theme.axis,
+    mirror: true,
+    showline: true,
+    ticks: "outside",
+    ticklen: 8,
+    tickwidth: 2,
+    tickcolor: theme.axis,
+    tickfont: { size: 14, color: theme.text },
+  };
 }
 
 function plotThemeTokens() {
@@ -1317,6 +1453,8 @@ function plotThemeTokens() {
       muted: "#b8abc9",
       grid: "#3a2b4d",
       zero: "#6e4a7e",
+      axis: "#f5f0ff",
+      legend: "rgba(18, 9, 31, 0.88)",
     };
   }
   return {
@@ -1326,6 +1464,8 @@ function plotThemeTokens() {
     muted: "#6d6478",
     grid: "#e5dfeb",
     zero: "#c9bed8",
+    axis: "#111111",
+    legend: "rgba(255, 255, 255, 0.88)",
   };
 }
 

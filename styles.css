@@ -696,6 +696,8 @@ textarea:focus {
   display: grid;
   gap: 12px;
   padding: 14px;
+  border-width: 1px;
+  border-color: rgba(240, 249, 33, 0.22);
 }
 
 .drop-zone {
@@ -762,10 +764,17 @@ textarea:focus {
 
 .plot-context {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px minmax(220px, 1.2fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) 150px 118px minmax(220px, 1fr);
   gap: 10px;
   align-items: end;
   margin-bottom: 12px;
+}
+
+.method-select {
+  min-height: 48px;
+  font-size: 1.02rem;
+  font-weight: 950;
+  text-align: center;
 }
 
 .plot-hint {
@@ -786,6 +795,55 @@ textarea:focus {
   content: "/";
   margin-right: 8px;
   color: rgba(240, 249, 33, 0.42);
+}
+
+.advanced-controls {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.advanced-controls summary {
+  cursor: pointer;
+  padding: 11px 12px;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.advanced-controls label {
+  padding: 0 12px 12px;
+}
+
+.style-controls {
+  gap: 10px;
+}
+
+.toggle-row {
+  display: flex;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 9px;
+}
+
+.toggle-row input {
+  width: auto;
+}
+
+.color-control {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.color-control input[type="color"] {
+  width: 48px;
+  height: 34px;
+  min-height: 34px;
+  padding: 3px;
+}
+
+input[type="range"] {
+  min-height: 24px;
+  accent-color: var(--accent);
 }
 
 .plot-canvas {
@@ -1313,6 +1371,19 @@ textarea:focus {
 .menu-button.danger {
   background: rgba(237, 121, 83, 0.16);
   color: #ffb49b;
+}
+
+.advanced-controls {
+  border-color: rgba(240, 249, 33, 0.18);
+  background: rgba(30, 16, 48, 0.6);
+}
+
+.advanced-controls summary {
+  color: var(--ink);
+}
+
+input[type="color"]:disabled {
+  opacity: 0.45;
 }
 
 .channel-board-labels {
