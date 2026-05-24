@@ -743,6 +743,7 @@ textarea:focus {
 .plot-layout {
   grid-template-columns: minmax(220px, 285px) minmax(0, 1fr);
   align-items: start;
+  margin-top: 14px;
 }
 
 .tool-panel {
@@ -789,6 +790,11 @@ textarea:focus {
   letter-spacing: 0;
 }
 
+.plot-dropbar {
+  min-height: 86px;
+  margin-top: 10px;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
@@ -817,10 +823,61 @@ textarea:focus {
 
 .plot-context {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px 118px minmax(220px, 1fr);
+  grid-template-columns: minmax(180px, 1fr) 150px minmax(220px, 1fr);
   gap: 10px;
   align-items: end;
   margin-bottom: 12px;
+}
+
+.plot-tabs,
+.plot-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.plot-tabs button,
+.plot-variants button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.plot-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+.plot-tabs button span {
+  display: grid;
+  min-width: 22px;
+  min-height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(13, 143, 122, 0.12);
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
+.plot-variants button {
+  padding: 0 13px;
+}
+
+.plot-tabs button.active,
+.plot-variants button.active {
+  border-color: var(--accent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(240, 249, 33, 0.56);
+}
+
+.plot-tabs button.empty:not(.active) {
+  opacity: 0.52;
 }
 
 .method-select {
@@ -1432,6 +1489,24 @@ textarea:focus {
 }
 
 .advanced-controls summary {
+  color: var(--ink);
+}
+
+.plot-tabs button,
+.plot-variants button {
+  border-color: rgba(240, 249, 33, 0.14);
+  background: rgba(30, 16, 48, 0.82);
+  color: var(--muted);
+}
+
+.plot-tabs button span {
+  background: rgba(240, 249, 33, 0.12);
+  color: var(--accent);
+}
+
+.plot-tabs button.active,
+.plot-variants button.active {
+  background: rgba(38, 18, 56, 0.96);
   color: var(--ink);
 }
 

@@ -153,14 +153,14 @@
             </div>
           </header>
 
+          <label class="drop-zone plot-dropbar" id="dropZone">
+            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" multiple />
+            <strong>Drop data files</strong>
+            <span>Neware, Squidstat, CSV, TSV, or notes are sorted by method automatically</span>
+          </label>
+
           <div class="plot-layout">
             <div class="tool-panel">
-              <label class="drop-zone" id="dropZone">
-                <input id="fileInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" multiple />
-                <strong>Drop data files</strong>
-                <span>Neware, Squidstat, CSV, TSV, or notes</span>
-              </label>
-
               <label>
                 Dataset
                 <select id="datasetSelect"></select>
@@ -240,6 +240,8 @@
             </div>
 
             <div class="plot-stage">
+              <div class="plot-tabs" id="plotFamilyTabs"></div>
+              <div class="plot-variants" id="plotVariantTabs"></div>
               <div class="plot-context">
                 <label>
                   Battery
@@ -249,21 +251,16 @@
                   Active mass
                   <input id="plotActiveMassInput" inputmode="decimal" placeholder="mg" />
                 </label>
-                <label>
-                  Plot
-                  <select id="plotMethodSelect" class="method-select">
-                    <option value="cv" title="current vs voltage">CV</option>
-                    <option value="cv-specific" title="specific current vs voltage">CV spec.</option>
-                    <option value="cd" title="voltage vs capacity">CD</option>
-                    <option value="cd-specific" title="voltage vs specific capacity">CD spec.</option>
-                    <option value="cd-time" title="voltage vs time by cycle">V-t</option>
-                    <option value="rate" title="capacity vs cycle">Rate</option>
-                    <option value="dqdv" title="derivative curve">dQ/dV</option>
-                    <option value="eis" title="Nyquist">EIS</option>
-                    <option value="gitt" title="voltage vs time">GITT</option>
-                    <option value="custom" title="custom axes">Custom</option>
-                  </select>
-                </label>
+                <select id="plotMethodSelect" class="method-select" hidden>
+                  <option value="cv">CV</option>
+                  <option value="cd">CD</option>
+                  <option value="cd-time">V-t</option>
+                  <option value="rate">Rate</option>
+                  <option value="dqdv">dQ/dV</option>
+                  <option value="eis">EIS</option>
+                  <option value="gitt">GITT</option>
+                  <option value="custom">Custom</option>
+                </select>
                 <div class="plot-hint" id="datasetStats"></div>
               </div>
               <div id="plotCanvas" class="plot-canvas"></div>

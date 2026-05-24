@@ -14,15 +14,22 @@ const DEFAULT_TEAM_MEMBERS = [
 ];
 const PLOT_METHODS = {
   cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
-  "cv-specific": { short: "CV spec.", hint: "specific current vs voltage", colors: ["#404040", "#ef4444", "#1f6feb", "#a21caf"] },
   cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
-  "cd-specific": { short: "CD spec.", hint: "voltage vs specific capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   "cd-time": { short: "V-t", hint: "CD voltage vs time by cycle", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   rate: { short: "Rate", hint: "capacity vs cycle", colors: ["#5b02a3", "#9c179e", "#cc4778", "#ed7953"] },
   dqdv: { short: "dQ/dV", hint: "derivative curve", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
   eis: { short: "EIS", hint: "Nyquist", colors: ["#0d0887", "#2563eb", "#22a7f0", "#5b02a3"] },
   gitt: { short: "GITT", hint: "voltage vs time", colors: ["#ed7953", "#fdb42f", "#cc4778", "#5b02a3"] },
   custom: { short: "Custom", hint: "custom axes", colors: ["#0d0887", "#9c179e", "#ed7953", "#f0f921"] },
+};
+const PLOT_FAMILIES = {
+  cv: { label: "CV", methods: ["cv"] },
+  cd: { label: "CD", methods: ["cd", "cd-time"] },
+  rate: { label: "Rate", methods: ["rate"] },
+  dqdv: { label: "dQ/dV", methods: ["dqdv"] },
+  eis: { label: "EIS", methods: ["eis"] },
+  gitt: { label: "GITT", methods: ["gitt"] },
+  custom: { label: "Custom", methods: ["custom"] },
 };
 
 const state = {
@@ -44,6 +51,7 @@ const state = {
   selectedSheet: null,
   plotMode: "lines",
   plotTheme: "light",
+  plotFamily: "cv",
   plotMethod: "cv",
   plotAutoColor: true,
   plotColor: "#2563eb",
@@ -86,6 +94,8 @@ const el = {
   yColumnSelect: document.querySelector("#yColumnSelect"),
   plotMode: document.querySelector("#plotMode"),
   plotTheme: document.querySelector("#plotTheme"),
+  plotFamilyTabs: document.querySelector("#plotFamilyTabs"),
+  plotVariantTabs: document.querySelector("#plotVariantTabs"),
   plotMethodSelect: document.querySelector("#plotMethodSelect"),
   plotBatteryNameInput: document.querySelector("#plotBatteryNameInput"),
   plotActiveMassInput: document.querySelector("#plotActiveMassInput"),
@@ -148,6 +158,7 @@ function boot() {
   renderMemberList();
   renderReservations();
   renderReservationHistory();
+  renderPlotTabs();
   renderEmptyPlot();
   calculate();
 
@@ -864,11 +875,14 @@ function bindFiles() {
   el.yColumnSelect.addEventListener("change", renderPlot);
   el.plotMethodSelect.addEventListener("change", () => {
     state.plotMethod = el.plotMethodSelect.value;
+    state.plotFamily = familyForMethod(state.plotMethod);
     applyMethodStyleDefaults();
     syncAdvancedPlotControls();
     renderColumnControls();
     renderPlot();
   });
+  el.plotFamilyTabs.addEventListener("click", handlePlotFamilyClick);
+  el.plotVariantTabs.addEventListener("click", handlePlotVariantClick);
   bindDecimalInput(el.plotActiveMassInput);
   el.plotBatteryNameInput.addEventListener("input", renderPlot);
   el.plotActiveMassInput.addEventListener("input", renderPlot);
@@ -894,6 +908,31 @@ function bindFiles() {
   el.exportPlotBtn.addEventListener("click", exportPlot);
   el.exportSelectedCsvBtn.addEventListener("click", exportSelectedCsv);
   el.exportWorkbookZipBtn.addEventListener("click", exportAllCsv);
+}
+
+function handlePlotFamilyClick(event) {
+  const button = event.target.closest("[data-family]");
+  if (!button) return;
+  state.plotFamily = button.dataset.family;
+  state.plotMethod = PLOT_FAMILIES[state.plotFamily]?.methods[0] || "custom";
+  el.plotMethodSelect.value = state.plotMethod;
+  selectDatasetForFamily(state.plotFamily);
+  applyMethodStyleDefaults();
+  syncAdvancedPlotControls();
+  renderDatasetControls();
+}
+
+function handlePlotVariantClick(event) {
+  const button = event.target.closest("[data-method]");
+  if (!button) return;
+  state.plotMethod = button.dataset.method;
+  state.plotFamily = familyForMethod(state.plotMethod);
+  el.plotMethodSelect.value = state.plotMethod;
+  applyMethodStyleDefaults();
+  syncAdvancedPlotControls();
+  renderPlotTabs();
+  renderColumnControls();
+  renderPlot();
 }
 
 function bindPlotStyleControls() {
@@ -951,7 +990,8 @@ async function handleFiles(files) {
   const firstPlottable = parsed.find((dataset) => Object.keys(dataset.sheets).length) || parsed[0];
   state.selectedDatasetId = firstPlottable.id;
   state.selectedSheet = preferredSheetName(firstPlottable);
-  state.plotMethod = preferredPlotMethod(firstPlottable);
+  state.plotFamily = preferredPlotFamily(firstPlottable);
+  state.plotMethod = PLOT_FAMILIES[state.plotFamily]?.methods[0] || preferredPlotMethod(firstPlottable);
   el.plotMethodSelect.value = state.plotMethod;
   syncAdvancedPlotControls();
   updateSessionSummary();
@@ -976,13 +1016,13 @@ async function parseFile(file) {
     const text = await file.text();
     const delimiter = extension === "tsv" ? "\t" : detectDelimiter(text);
     const table = normalizeRows(parseDelimited(text, delimiter));
+    const sheets = { data: table };
     return {
       id,
       name: file.name,
-      kind: inferDatasetKind(file.name, { data: table }),
-      sheets: {
-        data: table,
-      },
+      kind: inferDatasetKind(file.name, sheets),
+      methods: inferDatasetMethods(file.name, sheets),
+      sheets,
     };
   }
 
@@ -995,7 +1035,7 @@ async function parseFile(file) {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
     sheets[name] = normalizeRows(rows);
   });
-  return { id, name: file.name, kind: inferDatasetKind(file.name, sheets), sheets };
+  return { id, name: file.name, kind: inferDatasetKind(file.name, sheets), methods: inferDatasetMethods(file.name, sheets), sheets };
 }
 
 function repairSheetRange(sheet) {
@@ -1054,6 +1094,30 @@ function inferDatasetKind(name, sheets) {
   return /\.(csv|tsv)$/i.test(name) ? "table" : "workbook";
 }
 
+function inferDatasetMethods(name, sheets) {
+  const headers = Object.values(sheets).flatMap((table) => table.headers || []);
+  const normalizedName = String(name || "").toLowerCase();
+  const methods = new Set();
+  if (findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance"])) {
+    methods.add("eis");
+  }
+  if (findColumn(headers, ["Working Electrode (V)", "Current (A)"]) || normalizedName.includes("cv")) {
+    methods.add("cv");
+  }
+  if (findColumn(headers, ["Voltage(V)", "Capacity(Ah)", "Current(A)"]) || normalizedName.includes("cd")) {
+    methods.add("cd");
+  }
+  if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) {
+    methods.add("rate");
+    methods.add("dqdv");
+  }
+  if (normalizedName.includes("gitt")) {
+    methods.add("gitt");
+  }
+  if (!methods.size) methods.add("custom");
+  return [...methods];
+}
+
 function parseNotes(text) {
   try {
     return JSON.parse(text);
@@ -1063,9 +1127,14 @@ function parseNotes(text) {
 }
 
 function renderDatasetControls() {
-  el.datasetSelect.innerHTML = state.datasets
-    .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)}</option>`)
+  renderPlotTabs();
+  const options = datasetsForFamily(state.plotFamily);
+  el.datasetSelect.innerHTML = options
+    .map((dataset) => `<option value="${dataset.id}">${escapeHtml(dataset.name)} (${dataset.methods?.join(", ") || dataset.kind})</option>`)
     .join("");
+  if (!options.some((dataset) => dataset.id === state.selectedDatasetId)) {
+    state.selectedDatasetId = options[0]?.id || null;
+  }
   el.datasetSelect.value = state.selectedDatasetId || "";
 
   const dataset = getSelectedDataset();
@@ -1085,6 +1154,53 @@ function renderDatasetControls() {
   renderSchema();
   renderPreview();
   renderPlot();
+}
+
+function renderPlotTabs() {
+  const available = availablePlotFamilies();
+  el.plotFamilyTabs.innerHTML = Object.entries(PLOT_FAMILIES)
+    .map(([family, config]) => {
+      const count = datasetsForFamily(family).length;
+      const active = family === state.plotFamily ? "active" : "";
+      const empty = !available.has(family) ? " empty" : "";
+      return `<button class="${active}${empty}" data-family="${family}">${config.label}<span>${count}</span></button>`;
+    })
+    .join("");
+
+  const methods = PLOT_FAMILIES[state.plotFamily]?.methods || ["custom"];
+  if (!methods.includes(state.plotMethod)) {
+    state.plotMethod = methods[0];
+    el.plotMethodSelect.value = state.plotMethod;
+  }
+  el.plotVariantTabs.innerHTML = methods
+    .map((method) => {
+      const active = method === state.plotMethod ? "active" : "";
+      return `<button class="${active}" data-method="${method}">${escapeHtml(PLOT_METHODS[method]?.hint || method)}</button>`;
+    })
+    .join("");
+}
+
+function availablePlotFamilies() {
+  const families = new Set();
+  state.datasets.forEach((dataset) => {
+    (dataset.methods || ["custom"]).forEach((method) => families.add(familyForMethod(method)));
+  });
+  if (!families.size) families.add("cv");
+  return families;
+}
+
+function datasetsForFamily(family) {
+  return state.datasets.filter((dataset) => (dataset.methods || ["custom"]).some((method) => familyForMethod(method) === family));
+}
+
+function selectDatasetForFamily(family) {
+  const match = datasetsForFamily(family)[0];
+  state.selectedDatasetId = match?.id || null;
+  state.selectedSheet = preferredSheetName(match);
+}
+
+function familyForMethod(method) {
+  return Object.entries(PLOT_FAMILIES).find(([, config]) => config.methods.includes(method))?.[0] || "custom";
 }
 
 function renderColumnControls() {
@@ -1212,9 +1328,7 @@ function buildPlotPreset(table) {
 
   const presets = {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
-    "cv-specific": { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
     cd: { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
-    "cd-specific": { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     "cd-time": { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     rate: { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     dqdv: { xColumn: voltage, yColumns: [charge].filter(Boolean), mode: "lines" },
@@ -1242,24 +1356,16 @@ function buildPlotSpec(table, dataset) {
     return buildCustomPlotSpec(table, dataset, xColumn, yColumns);
   }
 
-  if ((method === "cv" || method === "cv-specific") && state.plotOverlayFiles) {
+  if (method === "cv" && state.plotOverlayFiles) {
     return buildOverlayCvSpec(dataset);
   }
-  if (method === "cd" || method === "cd-specific" || method === "cd-time") {
+  if (method === "cd" || method === "cd-time") {
     return buildCdSpec(table, dataset, preset, method);
   }
   if (method === "dqdv") return buildDqdvSpec(table, dataset, preset);
   if (method === "eis") return buildEisSpec(table, dataset, preset);
 
   const massMg = plotActiveMassMg();
-  if (method === "cv-specific" && !massMg) {
-    return {
-      traces: [],
-      message: "Enter active mass in mg to plot specific current.",
-      hint: "Specific current needs active mass.",
-    };
-  }
-
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: `No matching ${plotMethodLabel()} columns found.` };
   }
@@ -1316,13 +1422,6 @@ function buildCustomPlotSpec(table, dataset, xColumn, yColumns) {
 
 function buildCdSpec(table, dataset, preset, method) {
   const massMg = plotActiveMassMg();
-  if (method === "cd-specific" && !massMg) {
-    return {
-      traces: [],
-      message: "Enter active mass in mg to plot specific capacity.",
-      hint: "Specific capacity needs active mass.",
-    };
-  }
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "CD needs voltage, capacity/time, and preferably cycle columns." };
   }
@@ -1365,13 +1464,6 @@ function buildCdSpec(table, dataset, preset, method) {
 
 function buildOverlayCvSpec(currentDataset) {
   const massMg = plotActiveMassMg();
-  if (state.plotMethod === "cv-specific" && !massMg) {
-    return {
-      traces: [],
-      message: "Enter active mass in mg to overlay specific CV currents.",
-      hint: "Specific current needs active mass.",
-    };
-  }
   const candidates = state.datasets
     .map((dataset) => {
       const table = tableForDatasetMethod(dataset, state.plotMethod);
@@ -1485,7 +1577,7 @@ function transformAxisValues(rows, column, axis, method, massMg) {
 
   if (axis === "y" && isCurrentColumn(column)) {
     const currentMA = values.map((value) => currentToMA(value, column));
-    if (method === "cv-specific" && massG) {
+    if (method === "cv" && massG) {
       return { values: currentMA.map((value) => value / massG), title: "Specific current [mA/g]" };
     }
     return { values: currentMA, title: "Current [mA]" };
@@ -1497,7 +1589,7 @@ function transformAxisValues(rows, column, axis, method, massMg) {
 
   if (isCapacityColumn(column)) {
     const capacityMAh = values.map((value) => capacityToMAh(value, column));
-    if (axis === "x" && method === "cd-specific" && massG) {
+    if (axis === "x" && method === "cd" && massG) {
       return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
     if (axis === "y" && (method === "rate" || method === "cd") && massG) {
@@ -1674,8 +1766,8 @@ function plotMethodHint() {
 
 function plotHintText(method, massMg) {
   const sheet = state.selectedSheet ? `Using ${state.selectedSheet}. ` : "";
-  if ((method === "cd-specific" || method === "rate" || method === "dqdv") && !massMg) {
-    return `${sheet}Enter active mass to show specific capacity.`;
+  if ((method === "cv" || method === "cd" || method === "rate" || method === "dqdv") && !massMg) {
+    return `${sheet}Enter active mass to switch to specific values.`;
   }
   return `${sheet}${plotMethodLabel()} preset applied.`;
 }
@@ -2116,10 +2208,8 @@ function preferredSheetName(dataset, method = state.plotMethod) {
     rate: ["cycle", "summary"],
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
-    "cd-specific": ["record", "data", "cycle"],
     "cd-time": ["record", "data", "cycle"],
     cv: ["data", "record"],
-    "cv-specific": ["data", "record"],
     eis: ["data", "record"],
     gitt: ["data", "record"],
   }[method] || [];
@@ -2143,11 +2233,16 @@ function pickColumn(headers, preferred) {
 function preferredPlotMethod(dataset) {
   if (!dataset) return "cv";
   const headers = Object.values(dataset.sheets).flatMap((table) => table.headers || []);
-  if (findColumn(headers, ["Zreal", "Z Real", "Re(Z)", "Real Impedance"])) return "eis";
+  if (findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance"])) return "eis";
   if (findColumn(headers, ["Working Electrode (V)", "Current (A)"])) return "cv";
   if (findColumn(headers, ["Voltage(V)", "Capacity(Ah)", "Current(A)"])) return "cd";
   if (findColumn(headers, ["Cycle Index", "DChg. Cap.(Ah)"])) return "rate";
   return "custom";
+}
+
+function preferredPlotFamily(dataset) {
+  const preferred = preferredPlotMethod(dataset);
+  return familyForMethod(preferred);
 }
 
 function syncAdvancedPlotControls() {
