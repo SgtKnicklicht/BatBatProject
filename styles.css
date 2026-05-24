@@ -1513,7 +1513,7 @@ th {
 }
 
 dialog {
-  width: min(720px, calc(100vw - 30px));
+  width: min(920px, calc(100vw - 30px));
   border: 0;
   border-radius: var(--radius);
   padding: 0;
@@ -1569,6 +1569,39 @@ dialog::backdrop {
   margin: 0;
   color: var(--ink);
   font-size: 1rem;
+}
+
+.standard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.standard-row,
+.standard-add-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) minmax(120px, 0.8fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.foil-standard-row,
+.foil-add-row {
+  grid-template-columns: minmax(110px, 1.1fr) minmax(92px, 0.7fr) minmax(96px, 0.7fr) auto;
+}
+
+.standard-row input,
+.standard-add-row input {
+  min-width: 0;
+}
+
+.standard-row .ghost-button,
+.standard-add-row .ghost-button {
+  min-height: 42px;
+  padding-inline: 12px;
+}
+
+.danger-button {
+  color: #ffb4a8;
 }
 
 .sidebar {
@@ -2011,6 +2044,13 @@ input[type="color"]:disabled {
   }
 
   .dialog-card {
+    grid-template-columns: 1fr;
+  }
+
+  .standard-row,
+  .standard-add-row,
+  .foil-standard-row,
+  .foil-add-row {
     grid-template-columns: 1fr;
   }
 

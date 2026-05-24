@@ -422,9 +422,9 @@
                 <label>
                   Foil
                   <select id="foilPresetSelect" title="Foil preset">
-                    <option value="al">Al foil</option>
-                    <option value="cu">Cu foil</option>
-                    <option value="custom">Custom foil</option>
+                    <option value="al15">Al foil 15 mm</option>
+                    <option value="cu15">Cu foil 15 mm</option>
+                    <option value="custom15">Custom foil 15 mm</option>
                   </select>
                 </label>
                 <label>
@@ -519,59 +519,32 @@
 
         <section class="standard-card">
           <h3>Materials</h3>
-          <label>
-            Graphite capacity
+          <div class="standard-list" id="materialStandardsList"></div>
+          <div class="standard-add-row">
+            <input id="newMaterialNameInput" placeholder="Material name" />
             <div class="input-combo">
-              <input id="graphiteCapacityInput" inputmode="decimal" value="372" />
+              <input id="newMaterialCapacityInput" inputmode="decimal" placeholder="372" />
               <span>mAh/g</span>
             </div>
-          </label>
-          <label>
-            NMC capacity
-            <div class="input-combo">
-              <input id="nmcCapacityInput" inputmode="decimal" value="180" />
-              <span>mAh/g</span>
-            </div>
-          </label>
-          <label>
-            LFP capacity
-            <div class="input-combo">
-              <input id="lfpCapacityInput" inputmode="decimal" value="160" />
-              <span>mAh/g</span>
-            </div>
-          </label>
-          <label>
-            Custom capacity
-            <div class="input-combo">
-              <input id="customCapacityInput" inputmode="decimal" value="372" />
-              <span>mAh/g</span>
-            </div>
-          </label>
+            <button class="ghost-button" id="addMaterialStandardBtn" type="button">Add</button>
+          </div>
         </section>
 
         <section class="standard-card">
           <h3>Foils</h3>
-          <label>
-            Al foil mass
+          <div class="standard-list" id="foilStandardsList"></div>
+          <div class="standard-add-row foil-add-row">
+            <input id="newFoilNameInput" placeholder="Foil name" />
             <div class="input-combo">
-              <input id="alFoilMassInput" inputmode="decimal" value="43" />
+              <input id="newFoilDiameterInput" inputmode="decimal" placeholder="15" />
+              <span>mm</span>
+            </div>
+            <div class="input-combo">
+              <input id="newFoilMassInput" inputmode="decimal" placeholder="7.127" />
               <span>mg</span>
             </div>
-          </label>
-          <label>
-            Cu foil mass
-            <div class="input-combo">
-              <input id="cuFoilMassInput" inputmode="decimal" value="43" />
-              <span>mg</span>
-            </div>
-          </label>
-          <label>
-            Custom foil mass
-            <div class="input-combo">
-              <input id="customFoilMassInput" inputmode="decimal" value="43" />
-              <span>mg</span>
-            </div>
-          </label>
+            <button class="ghost-button" id="addFoilStandardBtn" type="button">Add</button>
+          </div>
         </section>
 
         <footer>

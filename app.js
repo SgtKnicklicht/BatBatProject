@@ -21,9 +21,9 @@ const DEFAULT_CALC_STANDARDS = {
     custom: { label: "Custom", capacity: 372 },
   },
   foils: {
-    al: { label: "Al foil", mass: 43 },
-    cu: { label: "Cu foil", mass: 43 },
-    custom: { label: "Custom foil", mass: 43 },
+    al15: { label: "Al foil", diameter: 15, mass: 7.127 },
+    cu15: { label: "Cu foil", diameter: 15, mass: 43 },
+    custom15: { label: "Custom foil", diameter: 15, mass: 43 },
   },
 };
 const PLOT_METHODS = {
@@ -176,13 +176,15 @@ const el = {
   saveCalcOptionsBtn: document.querySelector("#saveCalcOptionsBtn"),
   materialPresetSelect: document.querySelector("#materialPresetSelect"),
   foilPresetSelect: document.querySelector("#foilPresetSelect"),
-  graphiteCapacityInput: document.querySelector("#graphiteCapacityInput"),
-  nmcCapacityInput: document.querySelector("#nmcCapacityInput"),
-  lfpCapacityInput: document.querySelector("#lfpCapacityInput"),
-  customCapacityInput: document.querySelector("#customCapacityInput"),
-  alFoilMassInput: document.querySelector("#alFoilMassInput"),
-  cuFoilMassInput: document.querySelector("#cuFoilMassInput"),
-  customFoilMassInput: document.querySelector("#customFoilMassInput"),
+  materialStandardsList: document.querySelector("#materialStandardsList"),
+  foilStandardsList: document.querySelector("#foilStandardsList"),
+  newMaterialNameInput: document.querySelector("#newMaterialNameInput"),
+  newMaterialCapacityInput: document.querySelector("#newMaterialCapacityInput"),
+  addMaterialStandardBtn: document.querySelector("#addMaterialStandardBtn"),
+  newFoilNameInput: document.querySelector("#newFoilNameInput"),
+  newFoilDiameterInput: document.querySelector("#newFoilDiameterInput"),
+  newFoilMassInput: document.querySelector("#newFoilMassInput"),
+  addFoilStandardBtn: document.querySelector("#addFoilStandardBtn"),
   grossMassInput: document.querySelector("#grossMassInput"),
   emptyMassInput: document.querySelector("#emptyMassInput"),
   diameterInput: document.querySelector("#diameterInput"),
@@ -309,24 +311,88 @@ function cloneCalcStandards(source = DEFAULT_CALC_STANDARDS) {
 
 function loadCalcStandards() {
   try {
-    return mergeCalcStandards(JSON.parse(localStorage.getItem(CALC_STANDARDS_KEY) || "{}"));
+    const saved = JSON.parse(localStorage.getItem(CALC_STANDARDS_KEY) || "{}");
+    return saved.replaceDefaults ? normalizeCalcStandards(saved) : mergeCalcStandards(saved);
   } catch {
     return cloneCalcStandards();
   }
 }
 
+function normalizeCalcStandards(saved = {}) {
+  const defaults = cloneCalcStandards();
+  const materials = {};
+  Object.entries(saved.materials || {}).forEach(([key, material]) => {
+    const capacity = readPositiveStandard(material?.capacity, NaN);
+    if (!Number.isFinite(capacity)) return;
+    materials[key] = {
+      label: cleanStandardLabel(material?.label || key, "Material"),
+      capacity,
+    };
+  });
+  const foils = {};
+  Object.entries(saved.foils || {}).forEach(([key, foil]) => {
+    const diameter = readPositiveStandard(foil?.diameter, NaN);
+    const mass = readPositiveStandard(foil?.mass, NaN);
+    if (!Number.isFinite(diameter) || !Number.isFinite(mass)) return;
+    foils[key] = {
+      label: cleanStandardLabel(foil?.label || key, "Foil"),
+      diameter,
+      mass,
+    };
+  });
+  return {
+    materials: Object.keys(materials).length ? materials : defaults.materials,
+    foils: Object.keys(foils).length ? foils : defaults.foils,
+  };
+}
+
 function mergeCalcStandards(saved = {}) {
   const merged = cloneCalcStandards();
-  Object.keys(merged.materials).forEach((key) => {
-    merged.materials[key].capacity = readPositiveStandard(
-      saved.materials?.[key]?.capacity,
-      merged.materials[key].capacity,
-    );
+  Object.entries(saved.materials || {}).forEach(([key, material]) => {
+    const id = standardId(key || material?.label || "material", merged.materials);
+    const fallback = merged.materials[key] || DEFAULT_CALC_STANDARDS.materials.graphite;
+    const capacity = readPositiveStandard(material?.capacity, fallback.capacity);
+    merged.materials[id] = {
+      label: cleanStandardLabel(material?.label || fallback.label || key, "Material"),
+      capacity,
+    };
   });
-  Object.keys(merged.foils).forEach((key) => {
-    merged.foils[key].mass = readPositiveStandard(saved.foils?.[key]?.mass, merged.foils[key].mass);
+  Object.entries(saved.foils || {}).forEach(([key, foil]) => {
+    const migratedKey = key === "al" ? "al15" : key === "cu" ? "cu15" : key === "custom" ? "custom15" : key;
+    const id = standardId(migratedKey || foil?.label || "foil", merged.foils);
+    const fallback = merged.foils[migratedKey] || merged.foils[key] || DEFAULT_CALC_STANDARDS.foils.al15;
+    const savedDiameter = readNumber(foil?.diameter);
+    const savedMass = readNumber(foil?.mass);
+    const isOldDefaultFoil = !Number.isFinite(savedDiameter) && ["al", "cu", "custom"].includes(key) && savedMass === 43;
+    const diameter = readPositiveStandard(savedDiameter, fallback.diameter || 15);
+    const mass = isOldDefaultFoil ? fallback.mass : readPositiveStandard(savedMass, fallback.mass);
+    merged.foils[id] = {
+      label: cleanStandardLabel(foil?.label || fallback.label || key, "Foil"),
+      diameter,
+      mass,
+    };
   });
   return merged;
+}
+
+function standardId(seed, existing = {}) {
+  const base = String(seed || "standard")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 36) || "standard";
+  let id = base;
+  let counter = 2;
+  while (existing[id] && id !== seed) {
+    id = `${base}-${counter}`;
+    counter += 1;
+  }
+  return id;
+}
+
+function cleanStandardLabel(value, fallback) {
+  const label = String(value || "").trim();
+  return label || fallback;
 }
 
 function readPositiveStandard(value, fallback) {
@@ -335,7 +401,7 @@ function readPositiveStandard(value, fallback) {
 }
 
 function saveCalcStandards() {
-  localStorage.setItem(CALC_STANDARDS_KEY, JSON.stringify(state.calcStandards));
+  localStorage.setItem(CALC_STANDARDS_KEY, JSON.stringify({ ...state.calcStandards, replaceDefaults: true }));
 }
 
 function loadProfile() {
@@ -3323,15 +3389,7 @@ function bindCalculator() {
     bindDecimalInput(input);
     input.addEventListener("input", calculate);
   });
-  [
-    el.graphiteCapacityInput,
-    el.nmcCapacityInput,
-    el.lfpCapacityInput,
-    el.customCapacityInput,
-    el.alFoilMassInput,
-    el.cuFoilMassInput,
-    el.customFoilMassInput,
-  ].forEach(bindDecimalInput);
+  [el.newMaterialCapacityInput, el.newFoilDiameterInput, el.newFoilMassInput].forEach(bindDecimalInput);
   el.batchMassesInput.addEventListener("input", calculate);
   el.toggleBatchBtn.addEventListener("click", () => {
     el.batchPanel.hidden = !el.batchPanel.hidden;
@@ -3343,6 +3401,10 @@ function bindCalculator() {
   el.calcOptionsBtn.addEventListener("click", openCalcOptions);
   el.closeCalcOptionsBtn.addEventListener("click", closeCalcOptions);
   el.saveCalcOptionsBtn.addEventListener("click", saveCalcOptionsFromDialog);
+  el.addMaterialStandardBtn.addEventListener("click", addMaterialStandardRow);
+  el.addFoilStandardBtn.addEventListener("click", addFoilStandardRow);
+  el.materialStandardsList.addEventListener("click", handleStandardListClick);
+  el.foilStandardsList.addEventListener("click", handleStandardListClick);
   el.copyCyclerLineBtn.addEventListener("click", async () => {
     const text = el.cyclerLineInput.value;
     try {
@@ -3351,6 +3413,7 @@ function bindCalculator() {
       el.cyclerLineInput.select();
     }
   });
+  renderCalculatorPresetSelects();
   applyMaterialPreset(false);
   applyFoilPreset(false);
   hydrateCalcStandardsForm();
@@ -3358,6 +3421,8 @@ function bindCalculator() {
 
 function bindDecimalInput(input) {
   if (!input) return;
+  if (input.dataset.decimalBound === "true") return;
+  input.dataset.decimalBound = "true";
   input.addEventListener("keydown", (event) => {
     if (event.key !== ",") return;
     event.preventDefault();
@@ -3470,7 +3535,10 @@ function applyMaterialPreset(shouldCalculate = true) {
 
 function applyFoilPreset(shouldCalculate = true) {
   const preset = state.calcStandards.foils[el.foilPresetSelect.value];
-  if (preset) el.emptyMassInput.value = formatInputNumber(preset.mass);
+  if (preset) {
+    el.emptyMassInput.value = formatInputNumber(preset.mass);
+    if (Number.isFinite(preset.diameter)) el.diameterInput.value = formatInputNumber(preset.diameter);
+  }
   if (shouldCalculate !== false) calculate();
 }
 
@@ -3492,35 +3560,143 @@ function closeCalcOptions() {
 }
 
 function hydrateCalcStandardsForm() {
-  el.graphiteCapacityInput.value = formatInputNumber(state.calcStandards.materials.graphite.capacity);
-  el.nmcCapacityInput.value = formatInputNumber(state.calcStandards.materials.nmc.capacity);
-  el.lfpCapacityInput.value = formatInputNumber(state.calcStandards.materials.lfp.capacity);
-  el.customCapacityInput.value = formatInputNumber(state.calcStandards.materials.custom.capacity);
-  el.alFoilMassInput.value = formatInputNumber(state.calcStandards.foils.al.mass);
-  el.cuFoilMassInput.value = formatInputNumber(state.calcStandards.foils.cu.mass);
-  el.customFoilMassInput.value = formatInputNumber(state.calcStandards.foils.custom.mass);
+  renderStandardRows();
+  el.newMaterialNameInput.value = "";
+  el.newMaterialCapacityInput.value = "";
+  el.newFoilNameInput.value = "";
+  el.newFoilDiameterInput.value = "";
+  el.newFoilMassInput.value = "";
 }
 
 function saveCalcOptionsFromDialog() {
-  state.calcStandards = mergeCalcStandards({
-    materials: {
-      graphite: { capacity: el.graphiteCapacityInput.value },
-      nmc: { capacity: el.nmcCapacityInput.value },
-      lfp: { capacity: el.lfpCapacityInput.value },
-      custom: { capacity: el.customCapacityInput.value },
-    },
-    foils: {
-      al: { mass: el.alFoilMassInput.value },
-      cu: { mass: el.cuFoilMassInput.value },
-      custom: { mass: el.customFoilMassInput.value },
-    },
-  });
+  state.calcStandards = readCalcStandardsForm();
   saveCalcStandards();
+  renderCalculatorPresetSelects();
   hydrateCalcStandardsForm();
   applyMaterialPreset(false);
   applyFoilPreset(false);
   calculate();
   closeCalcOptions();
+}
+
+function renderCalculatorPresetSelects() {
+  const selectedMaterial = el.materialPresetSelect.value;
+  const selectedFoil = el.foilPresetSelect.value;
+  el.materialPresetSelect.innerHTML = Object.entries(state.calcStandards.materials)
+    .map(([id, material]) => {
+      return `<option value="${escapeHtml(id)}">${escapeHtml(material.label)}</option>`;
+    })
+    .join("");
+  el.foilPresetSelect.innerHTML = Object.entries(state.calcStandards.foils)
+    .map(([id, foil]) => {
+      return `<option value="${escapeHtml(id)}">${escapeHtml(foilStandardLabel(foil))}</option>`;
+    })
+    .join("");
+  el.materialPresetSelect.value = state.calcStandards.materials[selectedMaterial]
+    ? selectedMaterial
+    : Object.keys(state.calcStandards.materials)[0] || "";
+  el.foilPresetSelect.value = state.calcStandards.foils[selectedFoil]
+    ? selectedFoil
+    : Object.keys(state.calcStandards.foils)[0] || "";
+}
+
+function renderStandardRows() {
+  el.materialStandardsList.innerHTML = Object.entries(state.calcStandards.materials)
+    .map(([id, material]) => {
+      return `
+        <div class="standard-row" data-standard-kind="material" data-standard-id="${escapeHtml(id)}">
+          <input class="standard-label-input" value="${escapeHtml(material.label)}" aria-label="Material name" />
+          <div class="input-combo">
+            <input class="standard-capacity-input" inputmode="decimal" value="${formatInputNumber(material.capacity)}" aria-label="Specific capacity" />
+            <span>mAh/g</span>
+          </div>
+          <button class="ghost-button danger-button" type="button" data-standard-action="remove" title="Remove material">Remove</button>
+        </div>
+      `;
+    })
+    .join("");
+  el.foilStandardsList.innerHTML = Object.entries(state.calcStandards.foils)
+    .map(([id, foil]) => {
+      return `
+        <div class="standard-row foil-standard-row" data-standard-kind="foil" data-standard-id="${escapeHtml(id)}">
+          <input class="standard-label-input" value="${escapeHtml(foil.label)}" aria-label="Foil name" />
+          <div class="input-combo">
+            <input class="standard-diameter-input" inputmode="decimal" value="${formatInputNumber(foil.diameter)}" aria-label="Foil diameter" />
+            <span>mm</span>
+          </div>
+          <div class="input-combo">
+            <input class="standard-mass-input" inputmode="decimal" value="${formatInputNumber(foil.mass)}" aria-label="Foil mass" />
+            <span>mg</span>
+          </div>
+          <button class="ghost-button danger-button" type="button" data-standard-action="remove" title="Remove foil">Remove</button>
+        </div>
+      `;
+    })
+    .join("");
+  el.calcOptionsDialog.querySelectorAll('input[inputmode="decimal"]').forEach(bindDecimalInput);
+}
+
+function readCalcStandardsForm() {
+  const materials = {};
+  el.materialStandardsList.querySelectorAll(".standard-row").forEach((row) => {
+    const id = row.dataset.standardId;
+    const label = row.querySelector(".standard-label-input")?.value;
+    const capacity = row.querySelector(".standard-capacity-input")?.value;
+    const parsedCapacity = readPositiveStandard(capacity, NaN);
+    if (!id || !Number.isFinite(parsedCapacity)) return;
+    materials[id] = { label: cleanStandardLabel(label, "Material"), capacity: parsedCapacity };
+  });
+  const foils = {};
+  el.foilStandardsList.querySelectorAll(".standard-row").forEach((row) => {
+    const id = row.dataset.standardId;
+    const label = row.querySelector(".standard-label-input")?.value;
+    const diameter = readPositiveStandard(row.querySelector(".standard-diameter-input")?.value, NaN);
+    const mass = readPositiveStandard(row.querySelector(".standard-mass-input")?.value, NaN);
+    if (!id || !Number.isFinite(diameter) || !Number.isFinite(mass)) return;
+    foils[id] = { label: cleanStandardLabel(label, "Foil"), diameter, mass };
+  });
+  const defaults = cloneCalcStandards();
+  return {
+    materials: Object.keys(materials).length ? materials : defaults.materials,
+    foils: Object.keys(foils).length ? foils : defaults.foils,
+  };
+}
+
+function addMaterialStandardRow() {
+  const label = cleanStandardLabel(el.newMaterialNameInput.value, "New material");
+  const capacity = readPositiveStandard(el.newMaterialCapacityInput.value, 372);
+  state.calcStandards = readCalcStandardsForm();
+  const id = standardId(label, state.calcStandards.materials);
+  state.calcStandards.materials[id] = { label, capacity };
+  hydrateCalcStandardsForm();
+}
+
+function addFoilStandardRow() {
+  const label = cleanStandardLabel(el.newFoilNameInput.value, "New foil");
+  const diameter = readPositiveStandard(el.newFoilDiameterInput.value, readNumber(el.diameterInput.value) || 15);
+  const mass = readPositiveStandard(el.newFoilMassInput.value, readNumber(el.emptyMassInput.value) || 1);
+  state.calcStandards = readCalcStandardsForm();
+  const id = standardId(`${label}-${diameter}mm`, state.calcStandards.foils);
+  state.calcStandards.foils[id] = { label, diameter, mass };
+  hydrateCalcStandardsForm();
+}
+
+function handleStandardListClick(event) {
+  const button = event.target.closest("[data-standard-action='remove']");
+  if (!button) return;
+  const row = button.closest(".standard-row");
+  if (!row) return;
+  if (row.dataset.standardKind === "material" && el.materialStandardsList.querySelectorAll(".standard-row").length <= 1) return;
+  if (row.dataset.standardKind === "foil" && el.foilStandardsList.querySelectorAll(".standard-row").length <= 1) return;
+  row.remove();
+}
+
+function foilStandardLabel(foil) {
+  if (!Number.isFinite(foil.diameter)) return foil.label;
+  if (new RegExp(`\\b${String(foil.diameter).replace(".", "\\.")}\\s*mm\\b`, "i").test(foil.label)) {
+    return foil.label;
+  }
+  return `${foil.label} ${formatInputNumber(foil.diameter)} mm`;
 }
 
 function formatInputNumber(value) {
