@@ -120,6 +120,7 @@ const el = {
   plotOverlayInput: document.querySelector("#plotOverlayInput"),
   plotAutoColorInput: document.querySelector("#plotAutoColorInput"),
   plotGradientSelect: document.querySelector("#plotGradientSelect"),
+  plotGradientPreview: document.querySelector("#plotGradientPreview"),
   plotColorInput: document.querySelector("#plotColorInput"),
   plotLineWidthInput: document.querySelector("#plotLineWidthInput"),
   plotLineWidthValue: document.querySelector("#plotLineWidthValue"),
@@ -1046,6 +1047,7 @@ function bindPlotStyleControls() {
     document.querySelector("#dqdvWindowValue").textContent = String(state.dqdvWindow);
     el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
     el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
+    renderGradientPreview();
     renderPlot();
   };
   el.plotOverlayInput.addEventListener("change", syncStyleInputs);
@@ -1632,8 +1634,9 @@ function buildCdSpec(table, dataset, preset, method) {
   const traces = selectedGroups.map(([cycle, rows], index) => {
     const style = plotTraceStyle(index, { color: colors[index] });
     const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, method !== "cd-time");
+    const xValues = method === "cd-time" ? relativeXValues(series.x) : series.x;
     return {
-      x: series.x,
+      x: xValues,
       y: series.y,
       type: "scatter",
       mode: "lines",
@@ -1648,8 +1651,14 @@ function buildCdSpec(table, dataset, preset, method) {
     title: plotTitle(dataset),
     xTitle: xSeries.title,
     yTitle: ySeries.title,
-    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
+    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown relative to each cycle." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
+}
+
+function relativeXValues(values) {
+  const first = values.find((value) => Number.isFinite(value));
+  if (!Number.isFinite(first)) return values;
+  return values.map((value) => (Number.isFinite(value) ? value - first : value));
 }
 
 function buildOverlayCvSpec(currentDataset) {
@@ -1790,11 +1799,11 @@ function buildEisSpec(table, dataset, preset) {
 }
 
 function transformAxisValues(rows, column, axis, method, massMg) {
-  const values = numericSeries(rows, column);
   const lower = column.toLowerCase();
   const massG = massMg ? massMg / 1000 : 0;
 
   if (axis === "y" && isCurrentColumn(column)) {
+    const values = numericSeries(rows, column);
     const currentMA = values.map((value) => currentToMA(value, column));
     if (method === "cv" && massG) {
       return { values: currentMA.map((value) => value / massG), title: "Specific current [mA/g]" };
@@ -1803,10 +1812,11 @@ function transformAxisValues(rows, column, axis, method, massMg) {
   }
 
   if (isTimeColumn(column)) {
-    return { values: values.map((value) => timeToHours(value, column)), title: "Time [h]" };
+    return { values: rows.map((row) => timeValueToHours(row[column], column)), title: "Time [h]" };
   }
 
   if (isCapacityColumn(column)) {
+    const values = numericSeries(rows, column);
     const capacityMAh = values.map((value) => capacityToMAh(value, column));
     if (axis === "x" && method === "cd" && massG) {
       return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
@@ -1817,6 +1827,7 @@ function transformAxisValues(rows, column, axis, method, massMg) {
     return { values: capacityMAh, title: "Capacity [mAh]" };
   }
 
+  const values = numericSeries(rows, column);
   return { values, title: axisTitleFromColumn(column) };
 }
 
@@ -2212,6 +2223,28 @@ function timeToHours(value, column) {
   return value / 3600;
 }
 
+function timeValueToHours(value, column) {
+  if (typeof value === "number") return timeToHours(value, column);
+  const text = String(value ?? "").trim();
+  if (!text) return NaN;
+  const duration = durationTextToHours(text);
+  if (Number.isFinite(duration)) return duration;
+  if (!/^-?[\d.,]+(?:e-?\d+)?$/i.test(text)) return NaN;
+  const numeric = readNumber(text);
+  return Number.isFinite(numeric) ? timeToHours(numeric, column) : NaN;
+}
+
+function durationTextToHours(text) {
+  const match = text.match(/^(-)?(?:(\d+)\s+d\s+)?(\d{1,5}):(\d{2})(?::(\d{2}(?:[.,]\d+)?))?$/i);
+  if (!match) return NaN;
+  const sign = match[1] ? -1 : 1;
+  const days = Number(match[2] || 0);
+  const hours = Number(match[3] || 0);
+  const minutes = Number(match[4] || 0);
+  const seconds = readNumber(match[5] || 0);
+  return sign * (days * 24 + hours + minutes / 60 + seconds / 3600);
+}
+
 function plotActiveMassMg() {
   return readNumber(el.plotActiveMassInput.value);
 }
@@ -2283,15 +2316,25 @@ function plotMethodColors() {
 }
 
 function gradientColors(name, count) {
+  const stops = gradientStops(name);
+  if (count <= 1) return [stops[0]];
+  return Array.from({ length: count }, (_, index) => interpolatePalette(stops, index / (count - 1)));
+}
+
+function gradientStops(name) {
   const palettes = {
     plasma: ["#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"],
     viridis: ["#440154", "#31688e", "#35b779", "#fde725"],
     inferno: ["#000004", "#57106e", "#bc3754", "#f98e09", "#fcffa4"],
     "blue-red": ["#2563eb", "#7e03a8", "#ef4444"],
   };
-  const stops = palettes[name] || palettes.plasma;
-  if (count <= 1) return [stops[0]];
-  return Array.from({ length: count }, (_, index) => interpolatePalette(stops, index / (count - 1)));
+  return palettes[name] || palettes.plasma;
+}
+
+function renderGradientPreview() {
+  if (!el.plotGradientPreview) return;
+  const stops = gradientStops(state.plotGradient);
+  el.plotGradientPreview.style.background = `linear-gradient(90deg, ${stops.join(", ")})`;
 }
 
 function interpolatePalette(stops, t) {
