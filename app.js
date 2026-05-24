@@ -61,6 +61,13 @@ const state = {
   plotOverlayFiles: false,
   cycleFilter: "",
   cycleStep: 1,
+  dqdvSmoothing: "sg",
+  dqdvWindow: 9,
+  dqdvPolynomial: 2,
+  dqdvBinMv: 0,
+  dqdvPostWindow: 0,
+  dqdvMinDvMv: 0.05,
+  dqdvShowRaw: true,
 };
 
 const el = {
@@ -110,6 +117,13 @@ const el = {
   advancedPlotControls: document.querySelector("#advancedPlotControls"),
   cycleFilterInput: document.querySelector("#cycleFilterInput"),
   cycleStepInput: document.querySelector("#cycleStepInput"),
+  dqdvSmoothingSelect: document.querySelector("#dqdvSmoothingSelect"),
+  dqdvWindowInput: document.querySelector("#dqdvWindowInput"),
+  dqdvPolynomialSelect: document.querySelector("#dqdvPolynomialSelect"),
+  dqdvBinInput: document.querySelector("#dqdvBinInput"),
+  dqdvPostWindowInput: document.querySelector("#dqdvPostWindowInput"),
+  dqdvMinDvInput: document.querySelector("#dqdvMinDvInput"),
+  dqdvShowRawInput: document.querySelector("#dqdvShowRawInput"),
   plotCanvas: document.querySelector("#plotCanvas"),
   datasetStats: document.querySelector("#datasetStats"),
   exportPlotBtn: document.querySelector("#exportPlotBtn"),
@@ -946,7 +960,17 @@ function bindPlotStyleControls() {
     state.plotMarkerSize = readNumber(el.plotMarkerSizeInput.value) || 5;
     state.cycleFilter = el.cycleFilterInput.value.trim();
     state.cycleStep = Math.max(1, Math.round(readNumber(el.cycleStepInput.value) || 1));
+    state.dqdvSmoothing = el.dqdvSmoothingSelect.value;
+    state.dqdvWindow = oddNumberInRange(readNumber(el.dqdvWindowInput.value) || 9, 5, 41);
+    state.dqdvPolynomial = Math.max(2, Math.min(3, Math.round(readNumber(el.dqdvPolynomialSelect.value) || 2)));
+    state.dqdvBinMv = Math.max(0, readNumber(el.dqdvBinInput.value) || 0);
+    state.dqdvPostWindow = oddOrZero(readNumber(el.dqdvPostWindowInput.value) || 0, 0, 21);
+    state.dqdvMinDvMv = Math.max(0.0001, readNumber(el.dqdvMinDvInput.value) || 0.05);
+    state.dqdvShowRaw = el.dqdvShowRawInput.checked;
     el.plotColorInput.disabled = state.plotAutoColor;
+    if (el.dqdvWindowInput.value !== String(state.dqdvWindow)) el.dqdvWindowInput.value = String(state.dqdvWindow);
+    if (el.dqdvPostWindowInput.value !== String(state.dqdvPostWindow)) el.dqdvPostWindowInput.value = String(state.dqdvPostWindow);
+    document.querySelector("#dqdvWindowValue").textContent = String(state.dqdvWindow);
     el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
     el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
     renderPlot();
@@ -959,6 +983,15 @@ function bindPlotStyleControls() {
   el.plotMarkerSizeInput.addEventListener("input", syncStyleInputs);
   el.cycleFilterInput.addEventListener("input", syncStyleInputs);
   el.cycleStepInput.addEventListener("input", syncStyleInputs);
+  el.dqdvSmoothingSelect.addEventListener("change", syncStyleInputs);
+  el.dqdvWindowInput.addEventListener("input", syncStyleInputs);
+  el.dqdvPolynomialSelect.addEventListener("change", syncStyleInputs);
+  el.dqdvBinInput.addEventListener("input", syncStyleInputs);
+  el.dqdvPostWindowInput.addEventListener("input", syncStyleInputs);
+  el.dqdvMinDvInput.addEventListener("input", syncStyleInputs);
+  el.dqdvShowRawInput.addEventListener("change", syncStyleInputs);
+  bindDecimalInput(el.dqdvBinInput);
+  bindDecimalInput(el.dqdvMinDvInput);
   applyMethodStyleDefaults();
   syncStyleInputs();
 }
@@ -1513,33 +1546,62 @@ function buildDqdvSpec(table, dataset, preset) {
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "dQ/dV needs voltage and capacity columns from cycling data." };
   }
-  const voltage = numericSeries(table.rows, preset.xColumn);
-  const capacity = transformAxisValues(table.rows, preset.yColumns[0], "y", "cd", massMg).values;
-  const x = [];
-  const y = [];
-  for (let index = 1; index < voltage.length; index += 1) {
-    const dv = voltage[index] - voltage[index - 1];
-    const dq = capacity[index] - capacity[index - 1];
-    if (Number.isFinite(dv) && Number.isFinite(dq) && Math.abs(dv) > 1e-9) {
-      x.push((voltage[index] + voltage[index - 1]) / 2);
-      y.push(dq / dv);
-    }
-  }
-  return {
-    traces: [
-      {
-        x,
-        y,
+  const cycleColumn = findCycleColumn(table.headers);
+  const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
+  if (!groups.length) return { traces: [], message: "No cycles matched the cycle filter." };
+
+  const minDv = state.dqdvMinDvMv / 1000;
+  const requestedStep = state.dqdvBinMv / 1000;
+  const yTitle = massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]";
+  const colors = gradientColors(state.plotGradient, groups.length || 1);
+  const traces = [];
+  let processedCount = 0;
+  let rawPointCount = 0;
+
+  groups.forEach(([cycle, rows], groupIndex) => {
+    const qv = qvSegments(rows, preset.xColumn, preset.yColumns[0], massMg, minDv);
+    const raw = derivativeFromQvSegments(qv, minDv);
+    rawPointCount += raw.y.filter(Number.isFinite).length;
+    const processed = processDqdvSegments(qv, requestedStep, minDv);
+    processedCount += processed.y.filter(Number.isFinite).length;
+    const color = state.plotAutoColor ? colors[groupIndex] : undefined;
+    const style = plotTraceStyle(groupIndex, { color });
+
+    if (state.dqdvShowRaw && raw.x.length) {
+      traces.push({
+        x: raw.x,
+        y: raw.y,
         type: "scatter",
         mode: "lines",
-        name: massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]",
-        line: plotTraceStyle(0).line,
-      },
-    ],
+        name: cycle === null ? "Raw dQ/dV" : `Raw C${cycle}`,
+        line: { ...style.line, width: Math.max(1, state.plotLineWidth * 0.55), dash: "dot" },
+        opacity: 0.38,
+      });
+    }
+
+    if (processed.x.length) {
+      traces.push({
+        x: processed.x,
+        y: processed.y,
+        type: "scatter",
+        mode: "lines",
+        name: cycle === null ? yTitle : `Cycle ${cycle}`,
+        line: style.line,
+      });
+    }
+  });
+
+  const smoothingHint = state.dqdvSmoothing === "sg"
+    ? `Q(V) Savitzky-Golay window ${state.dqdvWindow}, polynomial ${state.dqdvPolynomial}`
+    : "No smoothing";
+  const stepHint = state.dqdvBinMv > 0 ? `voltage step ${formatNumber(state.dqdvBinMv)} mV` : "auto voltage step";
+  const postHint = state.dqdvPostWindow >= 3 ? `post SG window ${state.dqdvPostWindow}` : "no post-smoothing";
+  return {
+    traces,
     title: plotTitle(dataset),
     xTitle: "Voltage [V]",
-    yTitle: massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]",
-    hint: massMg ? "dQ/dV normalized by active mass." : "Enter active mass to show specific dQ/dV.",
+    yTitle,
+    hint: `${smoothingHint}; ${stepHint}; ${postHint}; min dV ${formatNumber(state.dqdvMinDvMv)} mV; ${processedCount}/${rawPointCount} derivative points shown.`,
   };
 }
 
@@ -1625,6 +1687,140 @@ function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnX
   });
 
   return { x, y };
+}
+
+function qvSegments(rows, voltageColumn, capacityColumn, massMg, minDv) {
+  const voltage = numericSeries(rows, voltageColumn);
+  const capacity = transformAxisValues(rows, capacityColumn, "y", "cd", massMg).values;
+  const segments = [];
+  let current = [];
+  let lastDirection = 0;
+
+  voltage.forEach((v, index) => {
+    const q = capacity[index];
+    if (!Number.isFinite(v) || !Number.isFinite(q)) return;
+    if (!current.length) {
+      current.push({ v, q });
+      return;
+    }
+    const previous = current[current.length - 1];
+    const dv = v - previous.v;
+    if (Math.abs(dv) < minDv) return;
+    const direction = Math.sign(dv);
+    if (lastDirection && direction !== lastDirection) {
+      if (current.length >= 3) segments.push(current);
+      current = [previous];
+    }
+    current.push({ v, q });
+    lastDirection = direction;
+  });
+  if (current.length >= 3) segments.push(current);
+  return segments.map(removeDuplicateVoltages);
+}
+
+function removeDuplicateVoltages(segment) {
+  const merged = [];
+  segment.forEach((point) => {
+    const last = merged[merged.length - 1];
+    if (last && Math.abs(point.v - last.v) < 1e-12) {
+      last.q = (last.q + point.q) / 2;
+      return;
+    }
+    merged.push({ ...point });
+  });
+  return merged;
+}
+
+function derivativeFromQvSegments(segments, minDv) {
+  const x = [];
+  const y = [];
+  segments.forEach((segment, segmentIndex) => {
+    if (segmentIndex) {
+      x.push(null);
+      y.push(null);
+    }
+    for (let index = 1; index < segment.length; index += 1) {
+      const previous = segment[index - 1];
+      const current = segment[index];
+      const dv = current.v - previous.v;
+      if (Math.abs(dv) < minDv) continue;
+      x.push((previous.v + current.v) / 2);
+      y.push((current.q - previous.q) / dv);
+    }
+  });
+  return { x, y };
+}
+
+function processDqdvSegments(segments, requestedStep, minDv) {
+  const x = [];
+  const y = [];
+  segments.forEach((segment, segmentIndex) => {
+    const step = requestedStep || autoVoltageStep(segment);
+    const grid = interpolateQvSegment(segment, step);
+    if (grid.length < 3) return;
+    const qValues = grid.map((point) => point.q);
+    const smoothQ = state.dqdvSmoothing === "sg"
+      ? savitzkyGolaySmooth(qValues, state.dqdvWindow, state.dqdvPolynomial)
+      : qValues;
+    const derivative = derivativeFromQvSegments([grid.map((point, index) => ({ v: point.v, q: smoothQ[index] }))], minDv);
+    const smoothY = state.dqdvPostWindow >= 3
+      ? savitzkyGolaySmooth(derivative.y, state.dqdvPostWindow, 2)
+      : derivative.y;
+    if (segmentIndex && derivative.x.length) {
+      x.push(null);
+      y.push(null);
+    }
+    x.push(...derivative.x);
+    y.push(...smoothY);
+  });
+  return { x, y };
+}
+
+function autoVoltageStep(segment) {
+  const diffs = [];
+  for (let index = 1; index < segment.length; index += 1) {
+    diffs.push(Math.abs(segment[index].v - segment[index - 1].v));
+  }
+  const finite = diffs.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  return finite[Math.floor(finite.length / 2)] || 0.001;
+}
+
+function interpolateQvSegment(segment, step) {
+  const direction = Math.sign(segment[segment.length - 1].v - segment[0].v) || 1;
+  const ordered = direction > 0 ? segment : [...segment].reverse();
+  const start = ordered[0].v;
+  const end = ordered[ordered.length - 1].v;
+  const grid = [];
+  let cursor = start;
+  let pointer = 1;
+  while (cursor <= end + step * 0.5) {
+    while (pointer < ordered.length - 1 && ordered[pointer].v < cursor) pointer += 1;
+    const before = ordered[pointer - 1];
+    const after = ordered[pointer];
+    if (before && after && after.v !== before.v) {
+      const ratio = (cursor - before.v) / (after.v - before.v);
+      grid.push({ v: cursor, q: before.q + ratio * (after.q - before.q) });
+    }
+    cursor += step;
+  }
+  return direction > 0 ? grid : grid.reverse();
+}
+
+function splitSeriesSegments(series) {
+  const segments = [];
+  let current = { x: [], y: [] };
+  series.x.forEach((xValue, index) => {
+    const yValue = series.y[index];
+    if (!Number.isFinite(xValue) || !Number.isFinite(yValue)) {
+      if (current.x.length) segments.push(current);
+      current = { x: [], y: [] };
+      return;
+    }
+    current.x.push(xValue);
+    current.y.push(yValue);
+  });
+  if (current.x.length) segments.push(current);
+  return segments;
 }
 
 function findCycleColumn(headers) {
@@ -1837,6 +2033,72 @@ function mixHex(a, b, t) {
 function hexToRgb(hex) {
   const clean = hex.replace("#", "");
   return [0, 2, 4].map((offset) => parseInt(clean.slice(offset, offset + 2), 16));
+}
+
+function savitzkyGolaySmooth(values, windowSize, polynomialOrder) {
+  if (values.length < 3 || windowSize < 3) return values.slice();
+  const size = Math.min(oddNumberInRange(windowSize, 3, values.length % 2 ? values.length : values.length - 1), values.length);
+  if (size < 3 || size <= polynomialOrder) return values.slice();
+  const half = Math.floor(size / 2);
+  return values.map((_, index) => {
+    const start = Math.max(0, Math.min(index - half, values.length - size));
+    const windowValues = values.slice(start, start + size);
+    const center = index - start;
+    return localPolynomialValue(windowValues, center, polynomialOrder);
+  });
+}
+
+function localPolynomialValue(values, center, order) {
+  const matrixSize = order + 1;
+  const normal = Array.from({ length: matrixSize }, () => Array(matrixSize).fill(0));
+  const rhs = Array(matrixSize).fill(0);
+
+  values.forEach((value, index) => {
+    const x = index - center;
+    const powers = Array.from({ length: matrixSize * 2 - 1 }, (_, power) => x ** power);
+    for (let row = 0; row < matrixSize; row += 1) {
+      rhs[row] += value * powers[row];
+      for (let column = 0; column < matrixSize; column += 1) {
+        normal[row][column] += powers[row + column];
+      }
+    }
+  });
+
+  return solveLinearSystem(normal, rhs)?.[0] ?? values[center];
+}
+
+function solveLinearSystem(matrix, vector) {
+  const n = vector.length;
+  const a = matrix.map((row, index) => [...row, vector[index]]);
+  for (let pivot = 0; pivot < n; pivot += 1) {
+    let max = pivot;
+    for (let row = pivot + 1; row < n; row += 1) {
+      if (Math.abs(a[row][pivot]) > Math.abs(a[max][pivot])) max = row;
+    }
+    if (Math.abs(a[max][pivot]) < 1e-12) return null;
+    [a[pivot], a[max]] = [a[max], a[pivot]];
+    const divisor = a[pivot][pivot];
+    for (let column = pivot; column <= n; column += 1) a[pivot][column] /= divisor;
+    for (let row = 0; row < n; row += 1) {
+      if (row === pivot) continue;
+      const factor = a[row][pivot];
+      for (let column = pivot; column <= n; column += 1) {
+        a[row][column] -= factor * a[pivot][column];
+      }
+    }
+  }
+  return a.map((row) => row[n]);
+}
+
+function oddNumberInRange(value, min, max) {
+  const bounded = Math.max(min, Math.min(max, Math.round(value)));
+  return bounded % 2 ? bounded : Math.max(min, bounded - 1);
+}
+
+function oddOrZero(value, min, max) {
+  const rounded = Math.round(value);
+  if (rounded <= 0) return 0;
+  return oddNumberInRange(rounded, Math.max(3, min), max);
 }
 
 function plasmaColors() {

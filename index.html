@@ -222,6 +222,44 @@
                 </label>
               </details>
 
+              <details class="advanced-controls" id="dqdvControls">
+                <summary>dQ/dV processing</summary>
+                <label>
+                  Smoothing
+                  <select id="dqdvSmoothingSelect">
+                    <option value="sg">SG on Q(V)</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+                <label>
+                  Q(V) SG window <span id="dqdvWindowValue">9</span>
+                  <input id="dqdvWindowInput" type="range" min="5" max="41" step="2" value="9" />
+                </label>
+                <label>
+                  SG polynomial
+                  <select id="dqdvPolynomialSelect">
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                  </select>
+                </label>
+                <label>
+                  Voltage step [mV]
+                  <input id="dqdvBinInput" inputmode="decimal" placeholder="auto" />
+                </label>
+                <label>
+                  Post SG window
+                  <input id="dqdvPostWindowInput" type="number" min="0" max="21" step="2" value="0" />
+                </label>
+                <label>
+                  Min dV [mV]
+                  <input id="dqdvMinDvInput" inputmode="decimal" value="0.05" />
+                </label>
+                <label class="toggle-row">
+                  <input id="dqdvShowRawInput" type="checkbox" checked />
+                  Show raw derivative
+                </label>
+              </details>
+
               <details class="advanced-controls" id="advancedPlotControls">
                 <summary>Custom axes</summary>
                 <label>
