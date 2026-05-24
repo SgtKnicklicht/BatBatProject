@@ -3,6 +3,7 @@ const HISTORY_KEY = "batbat.reservationHistory.v1";
 const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
+const CALC_STANDARDS_KEY = "batbat.calculatorStandards.v1";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
@@ -12,6 +13,19 @@ const DEFAULT_TEAM_MEMBERS = [
   { id: "member-3", name: "Member 3", color: "#cc4778" },
   { id: "member-4", name: "Member 4", color: "#fdb42f" },
 ];
+const DEFAULT_CALC_STANDARDS = {
+  materials: {
+    graphite: { label: "Graphite", capacity: 372 },
+    nmc: { label: "NMC / layered oxide", capacity: 180 },
+    lfp: { label: "LFP", capacity: 160 },
+    custom: { label: "Custom", capacity: 372 },
+  },
+  foils: {
+    al: { label: "Al foil", mass: 43 },
+    cu: { label: "Cu foil", mass: 43 },
+    custom: { label: "Custom foil", mass: 43 },
+  },
+};
 const PLOT_METHODS = {
   cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
@@ -51,6 +65,7 @@ const state = {
   menuChannel: null,
   clickTimer: null,
   teamMembers: [...DEFAULT_TEAM_MEMBERS],
+  calcStandards: cloneCalcStandards(),
   profile: {
     memberId: "tom",
     name: "Tom",
@@ -154,7 +169,19 @@ const el = {
   reportSheet: document.querySelector("#reportSheet"),
   previewTable: document.querySelector("#previewTable"),
   schemaList: document.querySelector("#schemaList"),
+  calcOptionsBtn: document.querySelector("#calcOptionsBtn"),
+  calcOptionsDialog: document.querySelector("#calcOptionsDialog"),
+  closeCalcOptionsBtn: document.querySelector("#closeCalcOptionsBtn"),
+  saveCalcOptionsBtn: document.querySelector("#saveCalcOptionsBtn"),
   materialPresetSelect: document.querySelector("#materialPresetSelect"),
+  foilPresetSelect: document.querySelector("#foilPresetSelect"),
+  graphiteCapacityInput: document.querySelector("#graphiteCapacityInput"),
+  nmcCapacityInput: document.querySelector("#nmcCapacityInput"),
+  lfpCapacityInput: document.querySelector("#lfpCapacityInput"),
+  customCapacityInput: document.querySelector("#customCapacityInput"),
+  alFoilMassInput: document.querySelector("#alFoilMassInput"),
+  cuFoilMassInput: document.querySelector("#cuFoilMassInput"),
+  customFoilMassInput: document.querySelector("#customFoilMassInput"),
   grossMassInput: document.querySelector("#grossMassInput"),
   emptyMassInput: document.querySelector("#emptyMassInput"),
   diameterInput: document.querySelector("#diameterInput"),
@@ -177,6 +204,7 @@ function boot() {
   state.reservations = loadReservations();
   state.reservationHistory = loadReservationHistory();
   state.teamMembers = loadTeamMembers();
+  state.calcStandards = loadCalcStandards();
   state.profile = loadProfile();
   saveTeamMembers();
   saveProfile(state.profile.memberId);
@@ -272,6 +300,41 @@ function normalizeMember(member) {
 
 function saveTeamMembers() {
   localStorage.setItem(MEMBER_KEY, JSON.stringify(state.teamMembers));
+}
+
+function cloneCalcStandards(source = DEFAULT_CALC_STANDARDS) {
+  return JSON.parse(JSON.stringify(source));
+}
+
+function loadCalcStandards() {
+  try {
+    return mergeCalcStandards(JSON.parse(localStorage.getItem(CALC_STANDARDS_KEY) || "{}"));
+  } catch {
+    return cloneCalcStandards();
+  }
+}
+
+function mergeCalcStandards(saved = {}) {
+  const merged = cloneCalcStandards();
+  Object.keys(merged.materials).forEach((key) => {
+    merged.materials[key].capacity = readPositiveStandard(
+      saved.materials?.[key]?.capacity,
+      merged.materials[key].capacity,
+    );
+  });
+  Object.keys(merged.foils).forEach((key) => {
+    merged.foils[key].mass = readPositiveStandard(saved.foils?.[key]?.mass, merged.foils[key].mass);
+  });
+  return merged;
+}
+
+function readPositiveStandard(value, fallback) {
+  const parsed = readNumber(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function saveCalcStandards() {
+  localStorage.setItem(CALC_STANDARDS_KEY, JSON.stringify(state.calcStandards));
 }
 
 function loadProfile() {
@@ -3025,6 +3088,15 @@ function bindCalculator() {
     bindDecimalInput(input);
     input.addEventListener("input", calculate);
   });
+  [
+    el.graphiteCapacityInput,
+    el.nmcCapacityInput,
+    el.lfpCapacityInput,
+    el.customCapacityInput,
+    el.alFoilMassInput,
+    el.cuFoilMassInput,
+    el.customFoilMassInput,
+  ].forEach(bindDecimalInput);
   el.batchMassesInput.addEventListener("input", calculate);
   el.toggleBatchBtn.addEventListener("click", () => {
     el.batchPanel.hidden = !el.batchPanel.hidden;
@@ -3032,6 +3104,10 @@ function bindCalculator() {
     calculate();
   });
   el.materialPresetSelect.addEventListener("change", applyMaterialPreset);
+  el.foilPresetSelect.addEventListener("change", applyFoilPreset);
+  el.calcOptionsBtn.addEventListener("click", openCalcOptions);
+  el.closeCalcOptionsBtn.addEventListener("click", closeCalcOptions);
+  el.saveCalcOptionsBtn.addEventListener("click", saveCalcOptionsFromDialog);
   el.copyCyclerLineBtn.addEventListener("click", async () => {
     const text = el.cyclerLineInput.value;
     try {
@@ -3040,9 +3116,13 @@ function bindCalculator() {
       el.cyclerLineInput.select();
     }
   });
+  applyMaterialPreset(false);
+  applyFoilPreset(false);
+  hydrateCalcStandardsForm();
 }
 
 function bindDecimalInput(input) {
+  if (!input) return;
   input.addEventListener("keydown", (event) => {
     if (event.key !== ",") return;
     event.preventDefault();
@@ -3147,19 +3227,69 @@ function parseBatchMasses(value) {
     .filter((value) => Number.isFinite(value) && value > 0);
 }
 
-function applyMaterialPreset() {
-  const presets = {
-    graphite: { capacity: 372, collector: 43 },
-    nmc: { capacity: 180, collector: 43 },
-    lfp: { capacity: 160, collector: 43 },
-    custom: null,
-  };
-  const preset = presets[el.materialPresetSelect.value];
-  if (preset) {
-    el.nominalInput.value = preset.capacity;
-    el.emptyMassInput.value = preset.collector;
+function applyMaterialPreset(shouldCalculate = true) {
+  const preset = state.calcStandards.materials[el.materialPresetSelect.value];
+  if (preset) el.nominalInput.value = formatInputNumber(preset.capacity);
+  if (shouldCalculate !== false) calculate();
+}
+
+function applyFoilPreset(shouldCalculate = true) {
+  const preset = state.calcStandards.foils[el.foilPresetSelect.value];
+  if (preset) el.emptyMassInput.value = formatInputNumber(preset.mass);
+  if (shouldCalculate !== false) calculate();
+}
+
+function openCalcOptions() {
+  hydrateCalcStandardsForm();
+  if (typeof el.calcOptionsDialog.showModal === "function") {
+    el.calcOptionsDialog.showModal();
+  } else {
+    el.calcOptionsDialog.setAttribute("open", "");
   }
+}
+
+function closeCalcOptions() {
+  if (typeof el.calcOptionsDialog.close === "function") {
+    el.calcOptionsDialog.close();
+  } else {
+    el.calcOptionsDialog.removeAttribute("open");
+  }
+}
+
+function hydrateCalcStandardsForm() {
+  el.graphiteCapacityInput.value = formatInputNumber(state.calcStandards.materials.graphite.capacity);
+  el.nmcCapacityInput.value = formatInputNumber(state.calcStandards.materials.nmc.capacity);
+  el.lfpCapacityInput.value = formatInputNumber(state.calcStandards.materials.lfp.capacity);
+  el.customCapacityInput.value = formatInputNumber(state.calcStandards.materials.custom.capacity);
+  el.alFoilMassInput.value = formatInputNumber(state.calcStandards.foils.al.mass);
+  el.cuFoilMassInput.value = formatInputNumber(state.calcStandards.foils.cu.mass);
+  el.customFoilMassInput.value = formatInputNumber(state.calcStandards.foils.custom.mass);
+}
+
+function saveCalcOptionsFromDialog() {
+  state.calcStandards = mergeCalcStandards({
+    materials: {
+      graphite: { capacity: el.graphiteCapacityInput.value },
+      nmc: { capacity: el.nmcCapacityInput.value },
+      lfp: { capacity: el.lfpCapacityInput.value },
+      custom: { capacity: el.customCapacityInput.value },
+    },
+    foils: {
+      al: { mass: el.alFoilMassInput.value },
+      cu: { mass: el.cuFoilMassInput.value },
+      custom: { mass: el.customFoilMassInput.value },
+    },
+  });
+  saveCalcStandards();
+  hydrateCalcStandardsForm();
+  applyMaterialPreset(false);
+  applyFoilPreset(false);
   calculate();
+  closeCalcOptions();
+}
+
+function formatInputNumber(value) {
+  return Number.isFinite(value) ? String(value) : "";
 }
 
 function updateSessionSummary() {

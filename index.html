@@ -403,10 +403,30 @@
                   <p class="eyebrow">Build cells</p>
                   <h2>Mass, loading, and C-rate</h2>
                 </div>
-                <button class="ghost-button" id="toggleBatchBtn" title="Batch helper">Batch</button>
+                <div class="calc-header-actions">
+                  <button class="ghost-button" id="calcOptionsBtn" title="Calculator standards">Options</button>
+                  <button class="ghost-button" id="toggleBatchBtn" title="Batch helper">Batch</button>
+                </div>
               </div>
 
               <div class="calc-grid">
+                <label>
+                  Material
+                  <select id="materialPresetSelect" title="Material preset">
+                    <option value="graphite">Graphite</option>
+                    <option value="nmc">NMC / layered oxide</option>
+                    <option value="lfp">LFP</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label>
+                  Foil
+                  <select id="foilPresetSelect" title="Foil preset">
+                    <option value="al">Al foil</option>
+                    <option value="cu">Cu foil</option>
+                    <option value="custom">Custom foil</option>
+                  </select>
+                </label>
                 <label>
                   Gross electrode
                   <div class="input-combo">
@@ -428,29 +448,14 @@
                     <span>mAh/g</span>
                   </div>
                 </label>
+                <label>
+                  Bare foil weight
+                  <div class="input-combo">
+                    <input id="emptyMassInput" inputmode="decimal" value="43.00" />
+                    <span>mg</span>
+                  </div>
+                </label>
               </div>
-
-              <details class="calc-options">
-                <summary>Options</summary>
-                <div class="calc-grid">
-                  <label>
-                    Material
-                    <select id="materialPresetSelect" title="Material preset">
-                      <option value="graphite">Graphite</option>
-                      <option value="nmc">NMC / layered oxide</option>
-                      <option value="lfp">LFP</option>
-                      <option value="custom">Custom</option>
-                    </select>
-                  </label>
-                  <label>
-                    Bare foil weight
-                    <div class="input-combo">
-                      <input id="emptyMassInput" inputmode="decimal" value="43.00" />
-                      <span>mg</span>
-                    </div>
-                  </label>
-                </div>
-              </details>
 
               <div class="recipe-grid">
                 <label>
@@ -501,6 +506,79 @@
     </div>
 
     <div class="channel-action-menu" id="channelActionMenu" hidden></div>
+
+    <dialog id="calcOptionsDialog">
+      <form class="dialog-card calc-options-dialog" method="dialog">
+        <header>
+          <div>
+            <p class="eyebrow">Calculator options</p>
+            <h2>Standards</h2>
+          </div>
+          <button class="ghost-button" id="closeCalcOptionsBtn" type="button">Close</button>
+        </header>
+
+        <section class="standard-card">
+          <h3>Materials</h3>
+          <label>
+            Graphite capacity
+            <div class="input-combo">
+              <input id="graphiteCapacityInput" inputmode="decimal" value="372" />
+              <span>mAh/g</span>
+            </div>
+          </label>
+          <label>
+            NMC capacity
+            <div class="input-combo">
+              <input id="nmcCapacityInput" inputmode="decimal" value="180" />
+              <span>mAh/g</span>
+            </div>
+          </label>
+          <label>
+            LFP capacity
+            <div class="input-combo">
+              <input id="lfpCapacityInput" inputmode="decimal" value="160" />
+              <span>mAh/g</span>
+            </div>
+          </label>
+          <label>
+            Custom capacity
+            <div class="input-combo">
+              <input id="customCapacityInput" inputmode="decimal" value="372" />
+              <span>mAh/g</span>
+            </div>
+          </label>
+        </section>
+
+        <section class="standard-card">
+          <h3>Foils</h3>
+          <label>
+            Al foil mass
+            <div class="input-combo">
+              <input id="alFoilMassInput" inputmode="decimal" value="43" />
+              <span>mg</span>
+            </div>
+          </label>
+          <label>
+            Cu foil mass
+            <div class="input-combo">
+              <input id="cuFoilMassInput" inputmode="decimal" value="43" />
+              <span>mg</span>
+            </div>
+          </label>
+          <label>
+            Custom foil mass
+            <div class="input-combo">
+              <input id="customFoilMassInput" inputmode="decimal" value="43" />
+              <span>mg</span>
+            </div>
+          </label>
+        </section>
+
+        <footer>
+          <button class="ghost-button" id="saveCalcOptionsBtn" type="button">Save standards</button>
+        </footer>
+      </form>
+    </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>

@@ -1376,6 +1376,14 @@ th {
   font-size: clamp(1.15rem, 2vw, 1.45rem);
 }
 
+.calc-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ghost-button.active {
   border-color: rgba(240, 249, 33, 0.68);
   box-shadow: 0 0 0 3px rgba(240, 249, 33, 0.08);
@@ -1397,7 +1405,6 @@ th {
   background: rgba(255, 255, 255, 0.5);
 }
 
-.calc-options,
 .batch-panel {
   display: grid;
   gap: 12px;
@@ -1409,19 +1416,6 @@ th {
 
 .batch-panel[hidden] {
   display: none;
-}
-
-.calc-options summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.calc-options[open] summary {
-  margin-bottom: 10px;
 }
 
 .recipe-grid input {
@@ -1555,6 +1549,26 @@ dialog::backdrop {
 
 .dialog-card footer {
   justify-content: flex-end;
+}
+
+.calc-options-dialog {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.standard-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(240, 249, 33, 0.16);
+  border-radius: var(--radius);
+  background: rgba(13, 7, 24, 0.38);
+}
+
+.standard-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
 }
 
 .sidebar {
