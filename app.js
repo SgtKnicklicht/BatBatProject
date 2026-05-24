@@ -30,7 +30,8 @@ const PLOT_METHODS = {
   cv: { short: "CV", hint: "current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   cd: { short: "CD", hint: "voltage vs capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   "cd-time": { short: "V-t", hint: "CD voltage vs total time", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
-  rate: { short: "Rate", hint: "capacity vs cycle", colors: ["#5b02a3", "#9c179e", "#cc4778", "#ed7953"] },
+  rate: { short: "Rate", hint: "capacity/CE vs cycle", colors: ["#111111", "#ef4444", "#2563eb", "#ed7953"] },
+  "rate-time": { short: "Rate-t", hint: "capacity/CE vs total time", colors: ["#111111", "#ef4444", "#2563eb", "#ed7953"] },
   dqdv: { short: "dQ/dV", hint: "derivative curve", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
   eis: { short: "EIS", hint: "Nyquist", colors: ["#0d0887", "#2563eb", "#22a7f0", "#5b02a3"] },
   gitt: { short: "GITT", hint: "voltage vs time", colors: ["#ed7953", "#fdb42f", "#cc4778", "#5b02a3"] },
@@ -39,7 +40,7 @@ const PLOT_METHODS = {
 const PLOT_FAMILIES = {
   cv: { label: "CV", methods: ["cv"] },
   cd: { label: "CD", methods: ["cd", "cd-time"] },
-  rate: { label: "Rate", methods: ["rate"] },
+  rate: { label: "Rate", methods: ["rate", "rate-time"] },
   dqdv: { label: "dQ/dV", methods: ["dqdv"] },
   eis: { label: "EIS", methods: ["eis"] },
   gitt: { label: "GITT", methods: ["gitt"] },
@@ -1328,7 +1329,8 @@ function primaryDatasetType(name, sheets, methods = inferDatasetMethods(name, sh
 
 function methodsForDatasetType(type) {
   if (type === "metadata") return [];
-  if (type === "cd") return ["cd"];
+  if (type === "cd") return ["cd", "cd-time"];
+  if (type === "rate") return ["rate", "rate-time"];
   return [type || "custom"];
 }
 
@@ -1504,12 +1506,12 @@ function renderPlot() {
 }
 
 function plot2dLayout(plotSpec, theme) {
-  return {
+  const layout = {
     title: { text: plotSpec.title, x: 0.03 },
     paper_bgcolor: theme.paper,
     plot_bgcolor: theme.plot,
     font: { color: theme.text },
-    margin: { t: 62, r: 34, b: 72, l: 86 },
+    margin: { t: 62, r: plotSpec.y2Title ? 92 : 34, b: 72, l: 86 },
     xaxis: plotAxisLayout(plotSpec.xTitle, theme),
     yaxis: plotAxisLayout(plotSpec.yTitle, theme),
     legend: {
@@ -1524,6 +1526,21 @@ function plot2dLayout(plotSpec, theme) {
     },
     colorway: plotMethodColors(),
   };
+  if (plotSpec.y2Title) {
+    layout.yaxis2 = {
+      ...plotAxisLayout(plotSpec.y2Title, theme),
+      overlaying: "y",
+      side: "right",
+      showgrid: false,
+      mirror: false,
+      title: { text: plotSpec.y2Title, font: { size: 18, color: "#2563eb" } },
+      tickfont: { size: 14, color: "#2563eb" },
+      linecolor: "#2563eb",
+      tickcolor: "#2563eb",
+      zeroline: false,
+    };
+  }
+  return layout;
 }
 
 function plot3dLayout(plotSpec, theme) {
@@ -1624,6 +1641,7 @@ function buildPlotPreset(table, method = state.plotMethod) {
     cd: { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     "cd-time": { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     rate: { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
+    "rate-time": { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     dqdv: { xColumn: voltage, yColumns: [charge].filter(Boolean), mode: "lines" },
     eis: { xColumn: zReal, yColumns: [zImag].filter(Boolean), mode: "lines+markers" },
     gitt: { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
@@ -1662,6 +1680,7 @@ function buildPlotSpec(table, dataset) {
   if (method === "cd" || method === "cd-time") {
     return buildCdSpec(table, dataset, preset, method);
   }
+  if (method === "rate" || method === "rate-time") return buildRateSpec(table, dataset, method);
   if (method === "dqdv") return buildDqdvSpec(table, dataset, preset);
   if (method === "eis") return buildEisSpec(table, dataset, preset);
 
@@ -1762,6 +1781,76 @@ function buildCdSpec(table, dataset, preset, method) {
     xTitle: xSeries.title,
     yTitle: ySeries.title,
     hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
+  };
+}
+
+function buildRateSpec(table, dataset, method) {
+  const headers = table.headers;
+  const massMg = plotActiveMassMg();
+  const massG = massMg ? massMg / 1000 : 0;
+  const cycleColumn = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
+  const chgSpecificColumn = chargeSpecificCapacityColumn(headers);
+  const dchgSpecificColumn = dischargeSpecificCapacityColumn(headers);
+  const chgCapacityColumn = chargeCapacityColumn(headers);
+  const dchgCapacityColumn = dischargeCapacityColumn(headers);
+  const ceColumnName = coulombicEfficiencyColumn(headers);
+
+  if (!cycleColumn || (!chgSpecificColumn && !dchgSpecificColumn && !chgCapacityColumn && !dchgCapacityColumn)) {
+    return { traces: [], message: "Rate needs cycle index plus charge/discharge capacity columns." };
+  }
+
+  const xSeries = method === "rate-time"
+    ? rateTotalTimeSeries(dataset, table, cycleColumn)
+    : { values: numericSeries(table.rows, cycleColumn), title: "Cycle Index" };
+  const discharge = rateCapacityValues(table.rows, dchgSpecificColumn, dchgCapacityColumn, massG);
+  const charge = rateCapacityValues(table.rows, chgSpecificColumn, chgCapacityColumn, massG);
+  const ce = ceColumnName ? numericSeries(table.rows, ceColumnName) : [];
+  const yTitle = dchgSpecificColumn || chgSpecificColumn || massG ? "Specific capacity [mAh/g]" : "Capacity [mAh]";
+  const markerLine = state.plotTheme === "light" ? { color: "#ffffff", width: 0.6 } : { color: "#12091f", width: 0.6 };
+  const traces = [];
+
+  if (discharge.some(Number.isFinite)) {
+    traces.push({
+      x: xSeries.values,
+      y: discharge,
+      type: "scatter",
+      mode: state.plotMode,
+      name: "Discharge specific capacity",
+      line: { color: "#111111", width: state.plotLineWidth },
+      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (charge.some(Number.isFinite)) {
+    traces.push({
+      x: xSeries.values,
+      y: charge,
+      type: "scatter",
+      mode: state.plotMode,
+      name: "Charge specific capacity",
+      line: { color: "#ef4444", width: state.plotLineWidth },
+      marker: { color: "#ef4444", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (ce.some(Number.isFinite)) {
+    traces.push({
+      x: xSeries.values,
+      y: ce,
+      yaxis: "y2",
+      type: "scatter",
+      mode: state.plotMode,
+      name: "CE",
+      line: { color: "#2563eb", width: state.plotLineWidth },
+      marker: { color: "#2563eb", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+
+  return {
+    traces,
+    title: plotTitle(dataset),
+    xTitle: xSeries.title,
+    yTitle,
+    y2Title: ce.some(Number.isFinite) ? "CE [%]" : "",
+    hint: `${method === "rate-time" ? "Total elapsed test time from step timestamps. " : ""}Discharge black, charge red, CE blue on right axis.`,
   };
 }
 
@@ -2329,6 +2418,72 @@ function capacityColumn(headers) {
   ]) || headers.find((header) => isCapacityColumn(header) && !normalizeColumnName(header).includes("cycle")) || "";
 }
 
+function chargeSpecificCapacityColumn(headers) {
+  return exactColumn(headers, [
+    "Chg. Spec. Cap.(mAh/g)",
+    "Chg Spec Cap (mAh/g)",
+    "Charge Specific Capacity",
+    "Charge Spec. Capacity",
+    "Charge Capacity (mAh/g)",
+  ]) || headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return normalized.includes("chg") && normalized.includes("spec") && normalized.includes("cap");
+  }) || "";
+}
+
+function dischargeSpecificCapacityColumn(headers) {
+  return exactColumn(headers, [
+    "DChg. Spec. Cap.(mAh/g)",
+    "DChg Spec Cap (mAh/g)",
+    "Discharge Specific Capacity",
+    "Discharge Spec. Capacity",
+    "Discharge Capacity (mAh/g)",
+  ]) || headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return (normalized.includes("dchg") || normalized.includes("discharge")) && normalized.includes("spec") && normalized.includes("cap");
+  }) || "";
+}
+
+function chargeCapacityColumn(headers) {
+  return exactColumn(headers, [
+    "Chg. Cap.(Ah)",
+    "Chg Cap(Ah)",
+    "Charge Capacity",
+    "Charge Capacity(Ah)",
+    "Charge Capacity (Ah)",
+  ]) || headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return normalized.includes("chg") && !normalized.includes("dchg") && !normalized.includes("spec") && normalized.includes("cap");
+  }) || "";
+}
+
+function dischargeCapacityColumn(headers) {
+  return exactColumn(headers, [
+    "DChg. Cap.(Ah)",
+    "DChg Cap(Ah)",
+    "Discharge Capacity",
+    "Discharge Capacity(Ah)",
+    "Discharge Capacity (Ah)",
+  ]) || headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return (normalized.includes("dchg") || normalized.includes("discharge")) && !normalized.includes("spec") && normalized.includes("cap");
+  }) || "";
+}
+
+function coulombicEfficiencyColumn(headers) {
+  return exactColumn(headers, [
+    "Chg.-DChg. Eff(%)",
+    "Chg.-DChg. Eff (%)",
+    "Coulombic Efficiency",
+    "Coulombic Efficiency (%)",
+    "CE(%)",
+    "CE (%)",
+  ]) || headers.find((header) => {
+    const normalized = normalizeColumnName(header);
+    return normalized.includes("eff") || normalized === "ce" || normalized.includes("coulombic");
+  }) || "";
+}
+
 function electrochemicalVoltageColumn(headers) {
   return exactColumn(headers, ["Working Electrode (V)", "Voltage(V)", "Voltage (V)", "Voltage", "Ewe/V"])
     || headers.find((header) => isVoltageColumn(header) && !normalizeColumnName(header).startsWith("dc")) || "";
@@ -2423,6 +2578,71 @@ function timeValueToHours(value, column) {
   if (!/^-?[\d.,]+(?:e-?\d+)?$/i.test(text)) return NaN;
   const numeric = readNumber(text);
   return Number.isFinite(numeric) ? timeToHours(numeric, column) : NaN;
+}
+
+function rateCapacityValues(rows, specificColumn, capacityColumnName, massG) {
+  if (specificColumn) return numericSeries(rows, specificColumn);
+  if (!capacityColumnName) return [];
+  const capacity = numericSeries(rows, capacityColumnName).map((value) => capacityToMAh(value, capacityColumnName));
+  return massG ? capacity.map((value) => value / massG) : capacity;
+}
+
+function rateTotalTimeSeries(dataset, cycleTable, cycleColumn) {
+  const cycles = numericSeries(cycleTable.rows, cycleColumn);
+  const fromSteps = cycleEndHoursFromSteps(dataset?.sheets?.step, cycles);
+  if (fromSteps.some(Number.isFinite)) return { values: fromSteps, title: "Total time [h]" };
+
+  let cumulative = 0;
+  const chgTime = findColumn(cycleTable.headers, ["Chg. Time", "Charge Time"]);
+  const dchgTime = findColumn(cycleTable.headers, ["DChg. Time", "Discharge Time"]);
+  const values = cycleTable.rows.map((row) => {
+    cumulative += durationLikeToHours(row[chgTime]) + durationLikeToHours(row[dchgTime]);
+    return cumulative;
+  });
+  return { values, title: "Total time [h]" };
+}
+
+function cycleEndHoursFromSteps(stepTable, cycles) {
+  if (!stepTable?.rows?.length) return [];
+  const cycleColumn = findColumn(stepTable.headers, ["Cycle Index", "Cycle", "Cycle number"]);
+  const startColumn = findColumn(stepTable.headers, ["Oneset Date", "Onset Date", "Start Date", "Start Time"]);
+  const endColumn = findColumn(stepTable.headers, ["End Date", "End Time"]);
+  if (!cycleColumn || !startColumn || !endColumn) return [];
+
+  let testStart = Infinity;
+  const endByCycle = new Map();
+  stepTable.rows.forEach((row) => {
+    const cycle = readNumber(row[cycleColumn]);
+    const start = dateValueToMs(row[startColumn]);
+    const end = dateValueToMs(row[endColumn]);
+    if (Number.isFinite(start)) testStart = Math.min(testStart, start);
+    if (!Number.isFinite(cycle) || !Number.isFinite(end)) return;
+    endByCycle.set(cycle, Math.max(endByCycle.get(cycle) || -Infinity, end));
+  });
+  if (!Number.isFinite(testStart)) return [];
+  return cycles.map((cycle) => {
+    const end = endByCycle.get(cycle);
+    return Number.isFinite(end) ? (end - testStart) / 3600000 : NaN;
+  });
+}
+
+function durationLikeToHours(value) {
+  const duration = durationTextToHours(String(value ?? "").trim());
+  if (Number.isFinite(duration)) return duration;
+  const numeric = readNumber(value);
+  return Number.isFinite(numeric) ? timeToHours(numeric, "Time") : 0;
+}
+
+function dateValueToMs(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    return excelEpoch + value * 86400000;
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return NaN;
+  const parsed = new Date(text.replace(" ", "T")).getTime();
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 function durationTextToHours(text) {
@@ -2993,6 +3213,7 @@ function preferredSheetName(dataset, method = state.plotMethod) {
   const lower = (name) => name.toLowerCase();
   const byMethod = {
     rate: ["cycle", "summary"],
+    "rate-time": ["cycle", "summary"],
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
     "cd-time": ["record", "data", "cycle"],
