@@ -67,7 +67,7 @@ const state = {
   dqdvBinMv: 0,
   dqdvPostWindow: 0,
   dqdvMinDvMv: 0.05,
-  dqdvShowRaw: true,
+  dqdvShowRaw: false,
 };
 
 const el = {
@@ -284,7 +284,7 @@ function channelLabel(channelNumber) {
 }
 
 function bindReservations() {
-  el.exportReservationsBtn.addEventListener("click", exportReservations);
+  el.exportReservationsBtn?.addEventListener("click", exportReservations);
   el.exportHistoryBtn.addEventListener("click", exportReservationHistory);
   el.addMemberBtn.addEventListener("click", addTeamMember);
   el.memberNameInput.addEventListener("keydown", (event) => {
@@ -1463,7 +1463,7 @@ function buildCdSpec(table, dataset, preset, method) {
   const yColumn = preset.yColumns[0];
   const xSeries = transformAxisValues(table.rows, xColumn, "x", method, massMg);
   const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
-  const cycleColumn = findCycleColumn(table.headers);
+  const cycleColumn = findCycleColumn(table.headers, table.rows);
   const groups = cycleGroups(table.rows, cycleColumn);
   const selectedGroups = selectedCycleGroups(groups);
   if (!selectedGroups.length) {
@@ -1507,7 +1507,7 @@ function buildOverlayCvSpec(currentDataset) {
 
   const colors = gradientColors(state.plotGradient, candidates.length || 1);
   const traces = candidates.flatMap(({ dataset, table, preset }, index) => {
-    const cycleColumn = findCycleColumn(table.headers);
+    const cycleColumn = findCycleColumn(table.headers, table.rows);
     const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
     const visibleGroups = cycleColumn ? groups : [[null, table.rows]];
     return visibleGroups.map(([cycle, rows], groupIndex) => {
@@ -1546,7 +1546,7 @@ function buildDqdvSpec(table, dataset, preset) {
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "dQ/dV needs voltage and capacity columns from cycling data." };
   }
-  const cycleColumn = findCycleColumn(table.headers);
+  const cycleColumn = findCycleColumn(table.headers, table.rows);
   const groups = selectedCycleGroups(cycleGroups(table.rows, cycleColumn));
   if (!groups.length) return { traces: [], message: "No cycles matched the cycle filter." };
 
@@ -1823,8 +1823,22 @@ function splitSeriesSegments(series) {
   return segments;
 }
 
-function findCycleColumn(headers) {
-  return findColumn(headers, ["Cycle Index", "Cycle", "Cycle number", "Cycle Number", "CycleID"]);
+function findCycleColumn(headers, rows = []) {
+  const exactNames = ["cycleindex", "cyclenumber", "cycleid", "cycle"];
+  const candidates = headers.filter((header) => exactNames.includes(normalizeColumnName(header)));
+  return candidates.find((column) => looksLikeCycleColumn(rows, column)) || "";
+}
+
+function looksLikeCycleColumn(rows, column) {
+  if (!column || !rows.length) return false;
+  const values = rows
+    .slice(0, 800)
+    .map((row) => readNumber(row[column]))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (!values.length) return false;
+  const integerRatio = values.filter((value) => Math.abs(value - Math.round(value)) < 1e-6).length / values.length;
+  const uniqueCount = new Set(values.map((value) => Math.round(value))).size;
+  return integerRatio > 0.92 && uniqueCount > 1 && uniqueCount <= Math.max(2, values.length * 0.75);
 }
 
 function cycleGroups(rows, cycleColumn) {
