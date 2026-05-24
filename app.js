@@ -1,4 +1,5 @@
 const STORAGE_KEY = "batbat.reservations.v2";
+const HISTORY_KEY = "batbat.reservationHistory.v1";
 const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
@@ -26,6 +27,7 @@ const PLOT_METHODS = {
 
 const state = {
   reservations: [],
+  reservationHistory: [],
   selectedChannels: new Set(),
   lastSelectedChannel: null,
   openChannel: null,
@@ -59,6 +61,8 @@ const el = {
   sessionSummary: document.querySelector("#sessionSummary"),
   channelGrid: document.querySelector("#channelGrid"),
   exportReservationsBtn: document.querySelector("#exportReservationsBtn"),
+  exportHistoryBtn: document.querySelector("#exportHistoryBtn"),
+  historyList: document.querySelector("#historyList"),
   selectedChannelsText: document.querySelector("#selectedChannelsText"),
   batteryNameInput: document.querySelector("#batteryNameInput"),
   activeMassInput: document.querySelector("#activeMassInput"),
@@ -131,6 +135,7 @@ const el = {
 
 function boot() {
   state.reservations = loadReservations();
+  state.reservationHistory = loadReservationHistory();
   state.teamMembers = loadTeamMembers();
   state.profile = loadProfile();
   saveTeamMembers();
@@ -142,6 +147,7 @@ function boot() {
   bindCalculator();
   renderMemberList();
   renderReservations();
+  renderReservationHistory();
   renderEmptyPlot();
   calculate();
 
@@ -183,6 +189,21 @@ function loadReservations() {
 
 function saveReservations() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.reservations));
+}
+
+function loadReservationHistory() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(entries)
+      ? entries.filter((item) => item && Number(item.channelNumber) <= ACTIVE_CHANNELS)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveReservationHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(state.reservationHistory));
 }
 
 function loadTeamMembers() {
@@ -239,6 +260,7 @@ function channelLabel(channelNumber) {
 
 function bindReservations() {
   el.exportReservationsBtn.addEventListener("click", exportReservations);
+  el.exportHistoryBtn.addEventListener("click", exportReservationHistory);
   el.addMemberBtn.addEventListener("click", addTeamMember);
   el.memberNameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addTeamMember();
@@ -405,6 +427,30 @@ function renderReservations() {
   syncSelectionInputs();
 }
 
+function renderReservationHistory() {
+  if (!el.historyList) return;
+  const recent = state.reservationHistory
+    .slice()
+    .sort((a, b) => new Date(b.releasedAt || 0) - new Date(a.releasedAt || 0))
+    .slice(0, 8);
+
+  el.historyList.innerHTML = recent.length
+    ? recent.map(historyItemHtml).join("")
+    : `<div class="history-empty">Released reservations will appear here automatically.</div>`;
+}
+
+function historyItemHtml(item) {
+  const battery = item.battery || "No battery";
+  const duration = formatDuration(item.createdAt, item.releasedAt);
+  return `
+    <div class="history-item">
+      <span>${escapeHtml(channelLabel(item.channelNumber))}</span>
+      <strong>${escapeHtml(battery)}</strong>
+      <em>${escapeHtml(item.owner || "Unknown")} / ${escapeHtml(duration)}</em>
+    </div>
+  `;
+}
+
 function channelSquare(channelNumber, reservation, isSelected) {
   const label = channelLabel(channelNumber);
   const color = reservation?.color || "#20132e";
@@ -547,10 +593,9 @@ function handleChannelMenuAction(event) {
   }
 
   if (action === "free") {
-    state.reservations = state.reservations.filter((item) => item.channelNumber !== state.menuChannel);
+    releaseReservation(state.menuChannel);
     state.selectedChannels.clear();
     state.lastSelectedChannel = null;
-    saveReservations();
     renderReservations();
     closeChannelMenu();
     return;
@@ -624,14 +669,43 @@ function applySelectedChannelDetails() {
 function releaseSelectedChannels() {
   const selected = [...state.selectedChannels];
   if (selected.length !== 1) return;
-  state.reservations = state.reservations.filter((item) => item.channelNumber !== selected[0]);
+  releaseReservation(selected[0]);
   state.selectedChannels.clear();
   state.lastSelectedChannel = null;
   el.batteryNameInput.value = "";
   el.activeMassInput.value = "";
   el.channelDetailsInput.value = "";
-  saveReservations();
   renderReservations();
+}
+
+function releaseReservation(channelNumber) {
+  const reservation = findReservation(channelNumber);
+  if (!reservation) return;
+  appendReservationHistory(reservation);
+  state.reservations = state.reservations.filter((item) => item.channelNumber !== channelNumber);
+  saveReservations();
+  renderReservationHistory();
+}
+
+function appendReservationHistory(reservation) {
+  const releasedAt = new Date().toISOString();
+  const entry = {
+    historyId: crypto.randomUUID(),
+    reservationId: reservation.id || "",
+    channelNumber: reservation.channelNumber,
+    channel: channelLabel(reservation.channelNumber),
+    memberId: reservation.memberId || "",
+    owner: reservation.owner || "",
+    color: reservation.color || "",
+    battery: reservation.battery || "",
+    activeMass: reservation.activeMass || "",
+    notes: reservation.notes || "",
+    createdAt: reservation.createdAt || reservation.reservedAt || "",
+    releasedAt,
+    durationMinutes: durationMinutes(reservation.createdAt || reservation.reservedAt, releasedAt),
+  };
+  state.reservationHistory.push(entry);
+  saveReservationHistory();
 }
 
 function syncSelectionInputs() {
@@ -735,6 +809,27 @@ function exportReservations() {
       ]),
   ];
   downloadText("batbat_channel_reservations.csv", toCsv(rows));
+}
+
+function exportReservationHistory() {
+  const rows = [
+    ["Channel", "Owner", "Color", "Battery", "Active Mass", "Notes", "Created At", "Released At", "Duration Minutes"],
+    ...state.reservationHistory
+      .slice()
+      .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+      .map((item) => [
+        item.channel || channelLabel(item.channelNumber),
+        item.owner,
+        item.color,
+        item.battery,
+        item.activeMass,
+        item.notes,
+        item.createdAt,
+        item.releasedAt,
+        item.durationMinutes,
+      ]),
+  ];
+  downloadText("batbat_channel_reservation_history.csv", toCsv(rows));
 }
 
 function bindFiles() {
@@ -2353,6 +2448,22 @@ function formatFullDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function durationMinutes(start, end) {
+  const started = new Date(start);
+  const ended = new Date(end);
+  if (Number.isNaN(started.getTime()) || Number.isNaN(ended.getTime())) return "";
+  return Math.max(0, Math.round((ended - started) / 60000));
+}
+
+function formatDuration(start, end) {
+  const minutes = durationMinutes(start, end);
+  if (minutes === "") return "open time unknown";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
 }
 
 function formatNumber(value) {

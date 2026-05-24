@@ -59,8 +59,11 @@
               <h1>Neware channels</h1>
             </div>
             <div class="action-row">
-              <button class="ghost-button" id="exportReservationsBtn" title="Export reservations">
-                Export
+              <button class="ghost-button" id="exportReservationsBtn" title="Export current reservations">
+                Current CSV
+              </button>
+              <button class="primary-button" id="exportHistoryBtn" title="Export released reservation history">
+                History CSV
               </button>
             </div>
           </header>
@@ -89,6 +92,14 @@
                   <button class="danger-button" id="releaseChannelsBtn" title="Release selected channels">Release</button>
                   <button class="primary-button" id="applyDetailsBtn" title="Apply details">Apply</button>
                 </div>
+              </section>
+
+              <section class="selection-card history-card">
+                <div>
+                  <p class="eyebrow">History</p>
+                  <h2>Recent releases</h2>
+                </div>
+                <div class="history-list" id="historyList"></div>
               </section>
 
             </aside>

@@ -347,6 +347,59 @@ textarea:focus {
   padding: 0 9px;
 }
 
+.history-card {
+  gap: 12px;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-item,
+.history-empty {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 9px;
+  padding: 10px;
+}
+
+.history-item span {
+  grid-row: span 2;
+  display: grid;
+  min-width: 44px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(240, 249, 33, 0.12);
+  color: var(--accent);
+  font-weight: 950;
+}
+
+.history-item strong,
+.history-item em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item em,
+.history-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.history-empty {
+  padding: 12px;
+}
+
 .channel-board-shell {
   padding: clamp(12px, 1.6vw, 16px);
   width: 100%;
@@ -1438,6 +1491,8 @@ input[type="color"]:disabled {
 .menu-section,
 .detail-item,
 .detail-notes,
+.history-item,
+.history-empty,
 .stat,
 .schema-item,
 .report-kpi,
