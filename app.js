@@ -2750,9 +2750,14 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
   const headers = stepTable.headers;
   const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
   const capacityCol = capacityColumn(headers);
+  const cycleColumn = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
   const startColumn = findColumn(headers, ["Oneset Date", "Onset Date", "Start Date", "Start Time"]);
   const endColumn = findColumn(headers, ["End Date", "End Time"]);
   if (!typeColumn || !capacityCol) return null;
+  if (cycleColumn) {
+    const byCycle = repairedRateSummaryFromStepCycles(stepTable, cycleColumn, typeColumn, capacityCol, startColumn, endColumn, massG);
+    if (byCycle?.cycles?.length) return byCycle;
+  }
 
   let testStart = Infinity;
   const charge = [];
@@ -2801,6 +2806,44 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
     timeHours,
     massG,
     source: "repaired step segments",
+  });
+}
+
+function repairedRateSummaryFromStepCycles(stepTable, cycleColumn, typeColumn, capacityCol, startColumn, endColumn, massG) {
+  let testStart = Infinity;
+  const byCycle = new Map();
+  stepTable.rows.forEach((row) => {
+    const cycle = readNumber(row[cycleColumn]);
+    const kind = stepTypeKind(row[typeColumn]);
+    const capacity = capacityToMAh(readNumber(row[capacityCol]), capacityCol);
+    if (!Number.isFinite(cycle) || cycle <= 0 || !kind || !Number.isFinite(capacity) || capacity <= 0) return;
+    const startMs = dateValueToMs(row[startColumn]);
+    const endMs = dateValueToMs(row[endColumn]);
+    if (Number.isFinite(startMs)) testStart = Math.min(testStart, startMs);
+    if (!byCycle.has(cycle)) {
+      byCycle.set(cycle, { cycle, charge: 0, discharge: 0, endMs: -Infinity });
+    }
+    const entry = byCycle.get(cycle);
+    entry[kind] += capacity;
+    if (Number.isFinite(endMs)) entry.endMs = Math.max(entry.endMs, endMs);
+  });
+
+  const entries = [...byCycle.values()]
+    .filter((entry) => entry.charge > 0 && entry.discharge > 0)
+    .sort((a, b) => a.cycle - b.cycle);
+  if (!entries.length) return null;
+
+  return normalizeRateSummary({
+    cycles: entries.map((entry) => entry.cycle),
+    charge: entries.map((entry) => entry.charge),
+    discharge: entries.map((entry) => entry.discharge),
+    timeHours: entries.map((entry, index) => {
+      return Number.isFinite(entry.endMs) && Number.isFinite(testStart)
+        ? (entry.endMs - testStart) / 3600000
+        : index + 1;
+    }),
+    massG,
+    source: "cycle-indexed step segments",
   });
 }
 
