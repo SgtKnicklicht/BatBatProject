@@ -1980,7 +1980,7 @@ function buildRepairedRateSpec(summary, dataset, method) {
   return {
     traces,
     title: plotTitle(dataset),
-    xTitle: method === "rate-time" ? "Total time [h]" : "Repaired cycle index",
+    xTitle: method === "rate-time" ? "Total time [h]" : "Cycle Index",
     yTitle: summary.specific ? "Specific capacity [mAh/g]" : "Capacity [mAh]",
     y2Title: filtered.ce.some(Number.isFinite) ? "CE [%]" : "",
     y2Range: [0, 110],
@@ -3662,7 +3662,7 @@ function exportSelectedCsv() {
     spec.traces[0].x[index],
     ...spec.traces.map((trace) => trace.y[index]),
   ]);
-  downloadText(`batbat_${safeName(state.selectedSheet)}_${safeName(state.plotMethod)}_plot.csv`, toCsv([headers, ...rows]));
+  downloadText(`${plotExportBaseName(dataset, spec)}.csv`, toCsv([headers, ...rows]));
 }
 
 function exportAllCsv() {
@@ -3676,9 +3676,12 @@ function exportAllCsv() {
 
 function exportPlot() {
   if (!window.Plotly) return;
+  const dataset = getSelectedDataset();
+  const table = getSelectedTable();
+  const spec = dataset && table ? buildPlotSpec(table, dataset) : null;
   Plotly.downloadImage(el.plotCanvas, {
     format: "png",
-    filename: "batbat_plot",
+    filename: plotExportBaseName(dataset, spec),
     width: 1600,
     height: 960,
     scale: 2,
@@ -4094,6 +4097,26 @@ function safeName(value) {
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
+}
+
+function plotExportBaseName(dataset, spec = null) {
+  const sample = el.plotBatteryNameInput?.value?.trim() || dataset?.name || "batbat";
+  const plotPart = plotExportLabel(spec);
+  return [safeName(sample), plotPart].filter(Boolean).join("_");
+}
+
+function plotExportLabel(spec = null) {
+  const method = state.plotMethod;
+  if (method === "rate") return "rate_capacity_ce_vs_cycle";
+  if (method === "rate-time") return "rate_capacity_ce_vs_total_time";
+  if (method === "cd") return "cd_voltage_vs_capacity";
+  if (method === "cd-time") return "cd_voltage_vs_total_time";
+  if (method === "cv") return state.plot3d ? "cv_3d_stack" : "cv_current_vs_voltage";
+  if (method === "dqdv") return state.plot3d ? "dqdv_3d_stack" : "dqdv_derivative";
+  if (method === "eis") return "eis_nyquist";
+  if (method === "gitt") return "gitt_voltage_vs_time";
+  if (method === "custom" && spec?.xTitle && spec?.yTitle) return `custom_${safeName(spec.yTitle)}_vs_${safeName(spec.xTitle)}`;
+  return safeName(`${method}_plot`);
 }
 
 function formatWindow(start, end) {
