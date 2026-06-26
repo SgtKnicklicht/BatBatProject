@@ -1887,17 +1887,6 @@ function buildRateSpec(table, dataset, method) {
   const markerLine = state.plotTheme === "light" ? { color: "#ffffff", width: 0.6 } : { color: "#12091f", width: 0.6 };
   const traces = [];
 
-  if (discharge.some(Number.isFinite)) {
-    traces.push({
-      x: xSeries.values,
-      y: discharge,
-      type: "scatter",
-      mode: state.plotMode,
-      name: "Discharge specific capacity",
-      line: { color: "#111111", width: state.plotLineWidth },
-      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
-    });
-  }
   if (charge.some(Number.isFinite)) {
     traces.push({
       x: xSeries.values,
@@ -1907,6 +1896,17 @@ function buildRateSpec(table, dataset, method) {
       name: "Charge specific capacity",
       line: { color: "#ef4444", width: state.plotLineWidth },
       marker: { color: "#ef4444", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (discharge.some(Number.isFinite)) {
+    traces.push({
+      x: xSeries.values,
+      y: discharge,
+      type: "scatter",
+      mode: state.plotMode,
+      name: "Discharge specific capacity",
+      line: { color: "#111111", width: state.plotLineWidth },
+      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
     });
   }
   if (ce.some(Number.isFinite)) {
@@ -1928,7 +1928,7 @@ function buildRateSpec(table, dataset, method) {
     xTitle: xSeries.title,
     yTitle,
     y2Title: ce.some(Number.isFinite) ? "CE [%]" : "",
-    hint: `${method === "rate-time" ? "Total elapsed test time from step timestamps. " : ""}Discharge black, charge red, CE blue on right axis.`,
+    hint: `${method === "rate-time" ? "Total elapsed test time from step timestamps. " : ""}Charge red, discharge black, CE blue on right axis.`,
   };
 }
 
@@ -1942,17 +1942,6 @@ function buildRepairedRateSpec(summary, dataset, method) {
   const markerLine = state.plotTheme === "light" ? { color: "#ffffff", width: 0.6 } : { color: "#12091f", width: 0.6 };
   const traces = [];
 
-  if (filtered.discharge.some(Number.isFinite)) {
-    traces.push({
-      x,
-      y: filtered.discharge,
-      type: "scatter",
-      mode,
-      name: summary.specific ? "Discharge specific capacity" : "Discharge capacity",
-      line: { color: "#111111", width: state.plotLineWidth },
-      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
-    });
-  }
   if (filtered.charge.some(Number.isFinite)) {
     traces.push({
       x,
@@ -1962,6 +1951,17 @@ function buildRepairedRateSpec(summary, dataset, method) {
       name: summary.specific ? "Charge specific capacity" : "Charge capacity",
       line: { color: "#ef4444", width: state.plotLineWidth },
       marker: { color: "#ef4444", size: state.plotMarkerSize, line: markerLine },
+    });
+  }
+  if (filtered.discharge.some(Number.isFinite)) {
+    traces.push({
+      x,
+      y: filtered.discharge,
+      type: "scatter",
+      mode,
+      name: summary.specific ? "Discharge specific capacity" : "Discharge capacity",
+      line: { color: "#111111", width: state.plotLineWidth },
+      marker: { color: "#111111", size: state.plotMarkerSize, line: markerLine },
     });
   }
   if (filtered.ce.some(Number.isFinite)) {
@@ -1984,7 +1984,7 @@ function buildRepairedRateSpec(summary, dataset, method) {
     yTitle: summary.specific ? "Specific capacity [mAh/g]" : "Capacity [mAh]",
     y2Title: filtered.ce.some(Number.isFinite) ? "CE [%]" : "",
     y2Range: [0, 110],
-    hint: `${filtered.cycles.length} of ${summary.cycles.length} repaired cycle(s) shown from ${summary.source}. Discharge black, charge red, CE blue. Original Neware cycle grouping is bypassed.`,
+    hint: `${filtered.cycles.length} of ${summary.cycles.length} repaired cycle(s) shown from ${summary.source}. Charge red, discharge black, CE blue. Original Neware cycle grouping is bypassed.`,
   };
 }
 
