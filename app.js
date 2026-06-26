@@ -2776,9 +2776,31 @@ function rateCapacityValues(rows, specificColumn, capacityColumnName, massG) {
 function buildRepairedRateSummary(dataset) {
   const massMg = plotActiveMassMg();
   const massG = massMg ? massMg / 1000 : 0;
-  const fromSteps = repairedRateSummaryFromSteps(dataset?.sheets?.step, massG);
+  const stepTable = findDatasetTable(dataset, ["step"], hasRateRepairStepColumns);
+  const fromSteps = repairedRateSummaryFromSteps(stepTable, massG);
   if (fromSteps?.cycles?.length) return fromSteps;
-  return repairedRateSummaryFromRecords(dataset?.sheets?.record || dataset?.sheets?.data, massG);
+  const recordTable = findDatasetTable(dataset, ["record", "data"], hasRateRepairRecordColumns);
+  return repairedRateSummaryFromRecords(recordTable, massG);
+}
+
+function findDatasetTable(dataset, preferredNames, predicate) {
+  const entries = Object.entries(dataset?.sheets || {});
+  const preferred = entries.find(([name, table]) => {
+    const lower = name.toLowerCase();
+    return preferredNames.some((preferredName) => lower.includes(preferredName)) && predicate(table);
+  });
+  if (preferred) return preferred[1];
+  return entries.find(([, table]) => predicate(table))?.[1] || null;
+}
+
+function hasRateRepairStepColumns(table) {
+  if (!table?.headers?.length) return false;
+  return Boolean(findColumn(table.headers, ["Step Type", "Step Name", "State"]) && capacityColumn(table.headers));
+}
+
+function hasRateRepairRecordColumns(table) {
+  if (!table?.headers?.length) return false;
+  return Boolean(findColumn(table.headers, ["Step Type", "Step Name", "State"]) && capacityColumn(table.headers) && voltageColumn(table.headers));
 }
 
 function repairedRateSummaryFromSteps(stepTable, massG) {
@@ -2790,10 +2812,6 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
   const startColumn = findColumn(headers, ["Oneset Date", "Onset Date", "Start Date", "Start Time"]);
   const endColumn = findColumn(headers, ["End Date", "End Time"]);
   if (!typeColumn || !capacityCol) return null;
-  if (cycleColumn) {
-    const byCycle = repairedRateSummaryFromStepCycles(stepTable, cycleColumn, typeColumn, capacityCol, startColumn, endColumn, massG);
-    if (byCycle?.cycles?.length) return byCycle;
-  }
 
   let testStart = Infinity;
   const charge = [];
@@ -2827,7 +2845,11 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
     if (Number.isFinite(endMs)) current.endMs = Math.max(current.endMs, endMs);
   });
   flushCurrent();
-  if (!charge.length && !discharge.length) return null;
+  if (!charge.length && !discharge.length) {
+    return cycleColumn
+      ? repairedRateSummaryFromStepCycles(stepTable, cycleColumn, typeColumn, capacityCol, startColumn, endColumn, massG)
+      : null;
+  }
 
   const count = Math.max(charge.length, discharge.length);
   const cycles = Array.from({ length: count }, (_, index) => index + 1);
@@ -2841,7 +2863,7 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
     discharge: discharge.map((item) => item.capacity),
     timeHours,
     massG,
-    source: "repaired step segments",
+    source: "repaired step sequence",
   });
 }
 
