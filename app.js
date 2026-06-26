@@ -3509,7 +3509,7 @@ function newareReportSpecs(dataset) {
   const cycle = dataset.sheets.cycle;
   const record = dataset.sheets.record;
   if (cycle && hasColumns(cycle, ["Cycle Index", "DChg. Cap.(Ah)"])) {
-    specs.push(chartSpec(dataset, "cycle", cycle, "Cycle Index", ["DChg. Cap.(Ah)", "Chg. Cap.(Ah)"], "Capacity retention"));
+    specs.push(chartSpec(dataset, "cycle", cycle, "Cycle Index", ["Chg. Cap.(Ah)", "DChg. Cap.(Ah)"], "Capacity retention"));
   }
   if (cycle && hasColumns(cycle, ["Cycle Index", "Chg.-DChg. Eff(%)"])) {
     specs.push(chartSpec(dataset, "cycle", cycle, "Cycle Index", ["Chg.-DChg. Eff(%)"], "Coulombic efficiency"));
@@ -3699,13 +3699,26 @@ function exportSelectedCsv() {
   if (!table || !dataset) return;
   const spec = buildPlotSpec(table, dataset);
   if (!spec.traces.length) return;
-  const headers = [spec.xTitle, ...spec.traces.map((trace) => trace.name)];
-  const rowCount = Math.max(...spec.traces.map((trace) => trace.x.length));
+  const traces = orderedTracesForExport(spec.traces);
+  const headers = [spec.xTitle, ...traces.map((trace) => trace.name)];
+  const rowCount = Math.max(...traces.map((trace) => trace.x.length));
   const rows = Array.from({ length: rowCount }, (_, index) => [
-    spec.traces[0].x[index],
-    ...spec.traces.map((trace) => trace.y[index]),
+    traces[0].x[index],
+    ...traces.map((trace) => trace.y[index]),
   ]);
   downloadText(`${plotExportBaseName(dataset, spec)}.csv`, toCsv([headers, ...rows]));
+}
+
+function orderedTracesForExport(traces) {
+  return [...traces].sort((a, b) => traceExportRank(a.name) - traceExportRank(b.name));
+}
+
+function traceExportRank(name) {
+  const normalized = normalizeColumnName(name || "");
+  if (normalized === "ce" || normalized.includes("coulombic") || normalized.includes("eff")) return 30;
+  if ((normalized.includes("charge") || normalized.includes("chg")) && !normalized.includes("discharge") && !normalized.includes("dchg")) return 10;
+  if (normalized.includes("discharge") || normalized.includes("dchg")) return 20;
+  return 100;
 }
 
 function exportAllCsv() {
