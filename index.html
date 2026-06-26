@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BatBat Project</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-    <link rel="stylesheet" href="styles.css?v=20260627-1" />
+    <link rel="stylesheet" href="styles.css?v=20260627-2" />
   </head>
   <body>
     <div class="app-shell">
@@ -299,11 +299,12 @@
                   3D
                 </button>
                 <select id="plotMethodSelect" class="method-select" hidden>
-                  <option value="cv">CV</option>
-                  <option value="cd">CD</option>
-                  <option value="cd-time">V-t</option>
-                  <option value="rate">Rate</option>
+                  <option value="cd-time">V vs t</option>
+                  <option value="v-cycle">V vs #</option>
+                  <option value="cd">V vs Cap / Spec Cap</option>
+                  <option value="cv">I vs V</option>
                   <option value="dqdv">dQ/dV</option>
+                  <option value="rate">Spec Cap + CE vs #</option>
                   <option value="eis">EIS</option>
                   <option value="gitt">GITT</option>
                   <option value="custom">Custom</option>
@@ -555,6 +556,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
-    <script src="app.js?v=20260627-1"></script>
+    <script src="app.js?v=20260627-2"></script>
   </body>
 </html>
