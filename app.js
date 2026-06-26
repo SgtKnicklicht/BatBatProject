@@ -1833,8 +1833,7 @@ function buildCdSpec(table, dataset, preset, method) {
   const yColumn = preset.yColumns[0];
   const xSeries = transformAxisValues(table.rows, xColumn, "x", method, massMg);
   const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
-  const cycleColumn = findCycleColumn(table.headers, table.rows);
-  const groups = cycleGroupsForPlot(table.rows, cycleColumn, method === "cd" ? xColumn : capacityColumn(table.headers));
+  const groups = cdCycleGroupsForPlot(table, method === "cd" ? xColumn : capacityColumn(table.headers));
   let selectedGroups = selectedCycleGroups(groups);
   const cycleFilterFallback = !selectedGroups.length && groups.length;
   if (cycleFilterFallback) selectedGroups = groups;
@@ -1863,6 +1862,13 @@ function buildCdSpec(table, dataset, preset, method) {
     yTitle: ySeries.title,
     hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
+}
+
+function cdCycleGroupsForPlot(table, resetColumn = "") {
+  const paired = pairedElectrochemicalCycleGroups(table.rows, table.headers);
+  if (paired.length) return paired;
+  const cycleColumn = findCycleColumn(table.headers, table.rows);
+  return cycleGroupsForPlot(table.rows, cycleColumn, resetColumn);
 }
 
 function buildRateSpec(table, dataset, method) {
@@ -2240,12 +2246,22 @@ function numericSeries(rows, column) {
 function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnXReset = false) {
   const xSeries = transformAxisValues(rows, xColumn, "x", method, massMg).values;
   const ySeries = transformAxisValues(rows, yColumn, "y", method, massMg).values;
+  const typeColumn = findColumn(Object.keys(rows[0] || {}), ["Step Type", "Step Name", "State"]);
   const x = [];
   const y = [];
   let lastX = null;
 
   xSeries.forEach((xValue, index) => {
     const yValue = ySeries[index];
+    const kind = typeColumn ? stepTypeKind(rows[index]?.[typeColumn]) : "";
+    if (kind === "rest") {
+      if (x.length && x[x.length - 1] !== null) {
+        x.push(null);
+        y.push(null);
+      }
+      lastX = null;
+      return;
+    }
     if (!Number.isFinite(xValue) || !Number.isFinite(yValue)) return;
     if (breakOnXReset && lastX !== null && xValue < lastX - 1e-8) {
       x.push(null);
@@ -2276,6 +2292,11 @@ function qvSegments(rows, voltageColumn, capacityColumn, massMg, minDv) {
   voltage.forEach((v, index) => {
     const q = capacity[index];
     const kind = typeColumn ? stepTypeKind(rows[index]?.[typeColumn]) : "";
+    if (kind === "rest") {
+      flush();
+      lastKind = "";
+      return;
+    }
     if (!Number.isFinite(v) || !Number.isFinite(q)) {
       flush();
       lastKind = "";
@@ -2825,7 +2846,7 @@ function repairedRateSummaryFromSteps(stepTable, massG) {
   };
   stepTable.rows.forEach((row) => {
     const kind = stepTypeKind(row[typeColumn]);
-    if (!kind) {
+    if (!isElectrochemicalKind(kind)) {
       flushCurrent();
       return;
     }
@@ -2874,7 +2895,7 @@ function repairedRateSummaryFromStepCycles(stepTable, cycleColumn, typeColumn, c
     const cycle = readNumber(row[cycleColumn]);
     const kind = stepTypeKind(row[typeColumn]);
     const capacity = capacityToMAh(readNumber(row[capacityCol]), capacityCol);
-    if (!Number.isFinite(cycle) || cycle <= 0 || !kind || !Number.isFinite(capacity) || capacity <= 0) return;
+    if (!Number.isFinite(cycle) || cycle <= 0 || !isElectrochemicalKind(kind) || !Number.isFinite(capacity) || capacity <= 0) return;
     const startMs = dateValueToMs(row[startColumn]);
     const endMs = dateValueToMs(row[endColumn]);
     if (Number.isFinite(startMs)) testStart = Math.min(testStart, startMs);
@@ -2980,10 +3001,14 @@ function filteredRateSummary(summary) {
 function stepTypeKind(value) {
   const text = String(value || "").toLowerCase();
   if (!text) return "";
-  if (text.includes("rest") || text.includes("pause") || text.includes("ocv")) return "";
+  if (text.includes("rest") || text.includes("pause") || text.includes("ocv")) return "rest";
   if (text.includes("dchg") || text.includes("discharge") || text.includes("dch")) return "discharge";
   if (text.includes("chg") || text.includes("charge")) return "charge";
   return "";
+}
+
+function isElectrochemicalKind(kind) {
+  return kind === "charge" || kind === "discharge";
 }
 
 function segmentCapacityMAh(rows, capacityCol) {
@@ -2997,6 +3022,8 @@ function segmentCapacityMAh(rows, capacityCol) {
 }
 
 function dqdvGroupsForPlot(table, dataset, capacityCol) {
+  const pairedCycles = pairedElectrochemicalCycleGroups(table.rows, table.headers);
+  if (pairedCycles.length > 1) return selectedCycleGroups(pairedCycles);
   const cycleColumn = findCycleColumn(table.headers, table.rows);
   if (cycleColumn) return selectedCycleGroups(cycleGroupsForPlot(table.rows, cycleColumn, capacityCol));
   const repairedCycles = electrochemicalCycleGroups(table.rows, table.headers);
@@ -3006,22 +3033,42 @@ function dqdvGroupsForPlot(table, dataset, capacityCol) {
 }
 
 function electrochemicalCycleGroups(rows, headers) {
+  const cycles = pairedElectrochemicalCycleGroups(rows, headers);
+  if (cycles.length) return cycles;
   const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
   if (!typeColumn) return [];
   const halfCycles = electrochemicalStepGroups(rows, headers)
     .map(([, groupRows]) => ({ kind: stepTypeKind(groupRows[0]?.[typeColumn]), rows: groupRows }))
-    .filter((group) => group.kind && group.rows.length);
-  if (halfCycles.length < 2) return [];
+    .filter((group) => isElectrochemicalKind(group.kind) && group.rows.length);
+  return halfCycles.map((group, index) => [index + 1, group.rows]);
+}
+
+function pairedElectrochemicalCycleGroups(rows, headers) {
+  const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
+  if (!typeColumn) return [];
+  const segments = electrochemicalStepSegments(rows, headers);
+  const activeSegments = segments.filter((segment) => isElectrochemicalKind(segment.kind));
+  if (activeSegments.length < 2) return [];
 
   const cycles = [];
   let currentRows = [];
   let hasCharge = false;
   let hasDischarge = false;
 
-  halfCycles.forEach((halfCycle) => {
-    currentRows.push(...halfCycle.rows);
-    hasCharge = hasCharge || halfCycle.kind === "charge";
-    hasDischarge = hasDischarge || halfCycle.kind === "discharge";
+  segments.forEach((segment) => {
+    if (segment.kind === "rest") {
+      if (currentRows.length) currentRows.push(...segment.rows);
+      return;
+    }
+    if (!isElectrochemicalKind(segment.kind)) return;
+    if ((segment.kind === "charge" && hasCharge && !hasDischarge) || (segment.kind === "discharge" && hasDischarge && !hasCharge)) {
+      currentRows = [];
+      hasCharge = false;
+      hasDischarge = false;
+    }
+    currentRows.push(...segment.rows);
+    hasCharge = hasCharge || segment.kind === "charge";
+    hasDischarge = hasDischarge || segment.kind === "discharge";
     if (hasCharge && hasDischarge) {
       cycles.push([cycles.length + 1, currentRows]);
       currentRows = [];
@@ -3030,10 +3077,16 @@ function electrochemicalCycleGroups(rows, headers) {
     }
   });
 
-  return cycles.length ? cycles : halfCycles.map((group, index) => [index + 1, group.rows]);
+  return cycles;
 }
 
 function electrochemicalStepGroups(rows, headers) {
+  return electrochemicalStepSegments(rows, headers)
+    .filter((segment) => isElectrochemicalKind(segment.kind))
+    .map((segment, index) => [index + 1, segment.rows]);
+}
+
+function electrochemicalStepSegments(rows, headers) {
   const typeColumn = findColumn(headers, ["Step Type", "Step Name", "State"]);
   const capacityCol = capacityColumn(headers);
   const voltageCol = voltageColumn(headers);
@@ -3041,26 +3094,34 @@ function electrochemicalStepGroups(rows, headers) {
   const groups = [];
   let current = [];
   let currentKind = "";
+  const flush = () => {
+    if (isElectrochemicalKind(currentKind) && current.length >= 8) groups.push({ kind: currentKind, rows: current });
+    current = [];
+    currentKind = "";
+  };
   rows.forEach((row) => {
     const kind = stepTypeKind(row[typeColumn]);
     const voltage = readNumber(row[voltageCol]);
     const capacity = readNumber(row[capacityCol]);
-    if (!kind || !Number.isFinite(voltage) || !Number.isFinite(capacity)) {
-      if (current.length >= 8) groups.push([groups.length + 1, current]);
-      current = [];
-      currentKind = "";
+    if (kind === "rest") {
+      flush();
+      if (groups[groups.length - 1]?.kind !== "rest") groups.push({ kind: "rest", rows: [row] });
+      return;
+    }
+    if (!isElectrochemicalKind(kind) || !Number.isFinite(voltage) || !Number.isFinite(capacity)) {
+      flush();
       return;
     }
     if (currentKind && kind !== currentKind) {
-      if (current.length >= 8) groups.push([groups.length + 1, current]);
-      current = [];
+      flush();
     }
     current.push(row);
     currentKind = kind;
   });
-  if (current.length >= 8) groups.push([groups.length + 1, current]);
-  return groups.filter(([, groupRows]) => {
-    const capacity = segmentCapacityMAh(groupRows, capacityCol);
+  flush();
+  return groups.filter((group) => {
+    if (group.kind === "rest") return true;
+    const capacity = segmentCapacityMAh(group.rows, capacityCol);
     return Number.isFinite(capacity) && capacity > 1e-6;
   });
 }
