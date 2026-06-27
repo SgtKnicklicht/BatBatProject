@@ -75,6 +75,7 @@ const state = {
   },
   datasets: [],
   selectedDatasetId: null,
+  plotFieldDatasetId: null,
   selectedSheet: null,
   plotMode: "lines",
   plotTheme: "light",
@@ -1025,6 +1026,7 @@ function bindFiles() {
     state.selectedDatasetId = el.datasetSelect.value;
     const dataset = getSelectedDataset();
     state.selectedSheet = preferredSheetName(dataset);
+    syncPlotFieldsForDataset(dataset, true);
     renderDatasetControls();
   });
   el.importedFileList.addEventListener("change", handleImportedFileChange);
@@ -1049,7 +1051,16 @@ function bindFiles() {
   el.plotVariantTabs.addEventListener("click", handlePlotVariantClick);
   bindDecimalInput(el.plotActiveMassInput);
   el.plotBatteryNameInput.addEventListener("input", renderPlot);
-  el.plotActiveMassInput.addEventListener("input", renderPlot);
+  el.plotActiveMassInput.addEventListener("input", () => {
+    const dataset = getSelectedDataset();
+    if (dataset) {
+      const text = el.plotActiveMassInput.value.trim();
+      dataset.activeMassMg = text ? readNumber(text) : NaN;
+      dataset.activeMassSource = text ? "manual" : "";
+      state.plotFieldDatasetId = dataset.id;
+    }
+    renderPlot();
+  });
   el.plot3dToggleBtn.addEventListener("click", () => {
     state.plot3d = !state.plot3d;
     syncAdvancedPlotControls();
@@ -1266,12 +1277,15 @@ async function parseFile(file) {
     const table = normalizeRows(parseDelimited(text, delimiter));
     const sheets = { data: table };
     const methods = inferDatasetMethods(file.name, sheets);
+    const activeMassMg = inferActiveMassMgFromSheets(sheets);
     return {
       id,
       name: file.name,
       kind: inferDatasetKind(file.name, sheets),
       type: primaryDatasetType(file.name, sheets, methods),
       methods,
+      activeMassMg,
+      activeMassSource: Number.isFinite(activeMassMg) ? "import" : "",
       enabled: true,
       sheets,
     };
@@ -1287,12 +1301,15 @@ async function parseFile(file) {
     sheets[name] = normalizeRows(rows);
   });
   const methods = inferDatasetMethods(file.name, sheets);
+  const activeMassMg = inferActiveMassMgFromSheets(sheets);
   return {
     id,
     name: file.name,
     kind: inferDatasetKind(file.name, sheets),
     type: primaryDatasetType(file.name, sheets, methods),
     methods,
+    activeMassMg,
+    activeMassSource: Number.isFinite(activeMassMg) ? "import" : "",
     enabled: true,
     sheets,
   };
@@ -1341,6 +1358,82 @@ function normalizeValue(value) {
   const numeric = readNumber(text);
   if (/^-?[\d.,]+(e-?\d+)?$/i.test(text) && Number.isFinite(numeric)) return numeric;
   return text;
+}
+
+function inferActiveMassMgFromSheets(sheets) {
+  const candidates = [];
+  Object.values(sheets || {}).forEach((table) => {
+    const cells = tableToCells(table);
+    cells.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const label = String(cell ?? "").trim();
+        if (!isActiveMassLabel(label)) return;
+        const inline = massMgFromText(label, label);
+        if (Number.isFinite(inline)) candidates.push({ value: inline, distance: 0 });
+        activeMassSearchOffsets().forEach(([rowOffset, colOffset, distance]) => {
+          const valueCell = cells[rowIndex + rowOffset]?.[colIndex + colOffset];
+          const unitCell = cells[rowIndex + rowOffset]?.[colIndex + colOffset + 1];
+          const value = massMgFromText(valueCell, `${label} ${unitCell ?? ""}`);
+          if (Number.isFinite(value)) candidates.push({ value, distance });
+        });
+      });
+    });
+  });
+  candidates.sort((a, b) => a.distance - b.distance);
+  return candidates[0]?.value ?? NaN;
+}
+
+function tableToCells(table) {
+  const headers = table?.headers || [];
+  return [headers, ...(table?.rows || []).map((row) => headers.map((header) => row[header]))];
+}
+
+function isActiveMassLabel(value) {
+  const text = String(value || "")
+    .toLowerCase()
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!text.includes("mass")) return false;
+  return (
+    text.includes("active material") ||
+    text.includes("active mass") ||
+    text.includes("material mass") ||
+    text.includes("am mass") ||
+    text.includes("active substance")
+  );
+}
+
+function activeMassSearchOffsets() {
+  return [
+    [0, 1, 1],
+    [0, 2, 2],
+    [0, 3, 3],
+    [1, 0, 2],
+    [1, 1, 3],
+    [2, 0, 4],
+    [2, 1, 5],
+  ];
+}
+
+function massMgFromText(value, context = "") {
+  if (typeof value === "number") return convertMassToMg(value, context);
+  const text = String(value ?? "").trim();
+  if (!text) return NaN;
+  const match = text.match(/-?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?/);
+  if (!match) return NaN;
+  const number = readNumber(match[0]);
+  if (!Number.isFinite(number) || number <= 0) return NaN;
+  return convertMassToMg(number, `${context} ${text}`);
+}
+
+function convertMassToMg(value, context = "") {
+  const text = String(context || "").toLowerCase();
+  let massMg = value;
+  if (/(?:µg|μg|ug)\b/.test(text)) massMg = value / 1000;
+  else if (/\bkg\b/.test(text)) massMg = value * 1000000;
+  else if (/\bg\b/.test(text) && !/\bmg\b/.test(text) && !/(?:µg|μg|ug)\b/.test(text)) massMg = value * 1000;
+  if (!Number.isFinite(massMg) || massMg <= 0 || massMg > 100000) return NaN;
+  return massMg;
 }
 
 function inferDatasetKind(name, sheets) {
@@ -1427,9 +1520,11 @@ function renderDatasetControls() {
 
   const dataset = getSelectedDataset();
   if (!dataset) {
+    syncPlotFieldsForDataset(null, true);
     renderEmptyPlot();
     return;
   }
+  syncPlotFieldsForDataset(dataset);
 
   el.sheetSelect.innerHTML = Object.keys(dataset.sheets)
     .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
@@ -3728,6 +3823,20 @@ function detectInstrumentLabel(dataSets) {
 
 function getSelectedDataset() {
   return state.datasets.find((dataset) => dataset.id === state.selectedDatasetId);
+}
+
+function syncPlotFieldsForDataset(dataset, force = false) {
+  if (!el.plotActiveMassInput) return;
+  if (!dataset) {
+    state.plotFieldDatasetId = null;
+    el.plotActiveMassInput.value = "";
+    return;
+  }
+  if (!force && state.plotFieldDatasetId === dataset.id) return;
+  state.plotFieldDatasetId = dataset.id;
+  el.plotActiveMassInput.value = Number.isFinite(dataset.activeMassMg) && dataset.activeMassMg > 0
+    ? formatNumber(dataset.activeMassMg)
+    : "";
 }
 
 function getSelectedTable() {
