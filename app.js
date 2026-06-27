@@ -41,7 +41,7 @@ const PLOT_METHODS = {
 const PLOT_FAMILIES = {
   voltage: { label: "Voltage", methods: ["cd-time", "v-cycle", "cd"] },
   cv: { label: "CV", methods: ["cv"] },
-  capacity: { label: "Cap + CE", methods: ["rate"] },
+  capacity: { label: "Cap + CE", methods: ["rate", "rate-time"] },
   dqdv: { label: "dQ/dV", methods: ["dqdv"] },
   eis: { label: "EIS", methods: ["eis"] },
   gitt: { label: "GITT", methods: ["gitt"] },
@@ -1492,8 +1492,8 @@ function primaryDatasetType(name, sheets, methods = inferDatasetMethods(name, sh
 
 function methodsForDatasetType(type) {
   if (type === "metadata") return [];
-  if (type === "cd") return ["cd-time", "v-cycle", "cd"];
-  if (type === "rate") return ["rate"];
+  if (type === "cd") return ["cd-time", "v-cycle", "cd", "rate", "rate-time", "dqdv"];
+  if (type === "rate") return ["rate", "rate-time", "dqdv", "cd-time", "v-cycle", "cd"];
   return [type || "custom"];
 }
 
@@ -1569,6 +1569,7 @@ function availablePlotFamilies() {
   state.datasets.filter(isDatasetEnabled).forEach((dataset) => {
     families.add(datasetFamily(dataset));
     if (dataset.methods?.includes("cd") || dataset.methods?.includes("v-cycle") || dataset.type === "rate") families.add("voltage");
+    if (supportsCapacityFamily(dataset)) families.add("capacity");
     if (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type)) families.add("dqdv");
   });
   if (!families.size) families.add("cv");
@@ -1581,6 +1582,7 @@ function datasetsForFamily(family) {
     .filter((dataset) => {
       if (datasetFamily(dataset) === family) return true;
       if (family === "voltage") return dataset.methods?.includes("cd") || dataset.methods?.includes("v-cycle") || dataset.type === "rate";
+      if (family === "capacity") return supportsCapacityFamily(dataset);
       return family === "dqdv" && (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type));
     });
 }
@@ -1597,6 +1599,16 @@ function isDatasetEnabled(dataset) {
 
 function datasetFamily(dataset) {
   return familyForMethod(dataset?.type || preferredPlotMethod(dataset));
+}
+
+function supportsCapacityFamily(dataset) {
+  if (!dataset || dataset.type === "metadata") return false;
+  if (dataset.methods?.includes("rate") || dataset.type === "rate") return true;
+  return Object.values(dataset.sheets || {}).some((table) => {
+    return hasCycleSummaryColumns(table.headers || [])
+      || hasRateRepairStepColumns(table)
+      || hasRateRepairRecordColumns(table);
+  });
 }
 
 function renderImportedFileList() {
