@@ -86,6 +86,8 @@ const state = {
   plotLineWidth: 2.4,
   plotMarkerSize: 5,
   plotGradient: "plasma",
+  plotLegend: "auto",
+  plotSize: "fit",
   plotOverlayFiles: false,
   cycleFilter: "",
   cycleStep: 1,
@@ -145,6 +147,8 @@ const el = {
   plotLineWidthValue: document.querySelector("#plotLineWidthValue"),
   plotMarkerSizeInput: document.querySelector("#plotMarkerSizeInput"),
   plotMarkerSizeValue: document.querySelector("#plotMarkerSizeValue"),
+  plotLegendSelect: document.querySelector("#plotLegendSelect"),
+  plotSizeSelect: document.querySelector("#plotSizeSelect"),
   advancedPlotControls: document.querySelector("#advancedPlotControls"),
   cycleControls: document.querySelector("#cycleControls"),
   cycleFilterInput: document.querySelector("#cycleFilterInput"),
@@ -1180,6 +1184,8 @@ function bindPlotStyleControls() {
     state.plotColor = el.plotColorInput.value;
     state.plotLineWidth = readNumber(el.plotLineWidthInput.value) || 2.4;
     state.plotMarkerSize = readNumber(el.plotMarkerSizeInput.value) || 5;
+    state.plotLegend = el.plotLegendSelect?.value || "auto";
+    state.plotSize = el.plotSizeSelect?.value || "fit";
     state.cycleFilter = el.cycleFilterInput.value.trim();
     state.cycleStep = Math.max(1, Math.round(readNumber(el.cycleStepInput.value) || 1));
     state.dqdvSmoothing = el.dqdvSmoothingSelect.value;
@@ -1195,6 +1201,7 @@ function bindPlotStyleControls() {
     document.querySelector("#dqdvWindowValue").textContent = String(state.dqdvWindow);
     el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
     el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
+    syncPlotCanvasSize();
     renderGradientPreview();
     renderPlot();
   };
@@ -1204,6 +1211,8 @@ function bindPlotStyleControls() {
   el.plotColorInput.addEventListener("input", syncStyleInputs);
   el.plotLineWidthInput.addEventListener("input", syncStyleInputs);
   el.plotMarkerSizeInput.addEventListener("input", syncStyleInputs);
+  el.plotLegendSelect?.addEventListener("change", syncStyleInputs);
+  el.plotSizeSelect?.addEventListener("change", syncStyleInputs);
   el.cycleFilterInput.addEventListener("input", syncStyleInputs);
   el.cycleStepInput.addEventListener("input", syncStyleInputs);
   el.dqdvSmoothingSelect.addEventListener("change", syncStyleInputs);
@@ -1687,24 +1696,17 @@ function renderPlot() {
 }
 
 function plot2dLayout(plotSpec, theme) {
+  const legend = plotLegendLayout(plotSpec, theme, false);
   const layout = {
     title: { text: plotSpec.title, x: 0.03 },
     paper_bgcolor: theme.paper,
     plot_bgcolor: theme.plot,
     font: { color: theme.text },
-    margin: { t: 62, r: plotSpec.y2Title ? 92 : 34, b: 72, l: 86 },
+    margin: plotMargins(plotSpec, legend),
     xaxis: plotAxisLayout(plotSpec.xTitle, theme),
     yaxis: plotAxisLayout(plotSpec.yTitle, theme),
-    legend: {
-      bgcolor: theme.legend,
-      bordercolor: theme.axis,
-      borderwidth: 1,
-      font: { color: theme.text, size: 15 },
-      x: 0.98,
-      xanchor: "right",
-      y: 0.02,
-      yanchor: "bottom",
-    },
+    showlegend: legend.show,
+    legend: legend.layout,
     colorway: plotMethodColors(),
   };
   if (plotSpec.y2Title) {
@@ -1726,12 +1728,13 @@ function plot2dLayout(plotSpec, theme) {
 }
 
 function plot3dLayout(plotSpec, theme) {
+  const legend = plotLegendLayout(plotSpec, theme, true);
   return {
     title: { text: plotSpec.title, x: 0.03 },
     paper_bgcolor: theme.paper,
     plot_bgcolor: theme.plot,
     font: { color: theme.text },
-    margin: { t: 62, r: 20, b: 22, l: 20 },
+    margin: legend.mode === "outside" ? { t: 62, r: 168, b: 22, l: 20 } : { t: 62, r: 20, b: 22, l: 20 },
     scene: {
       bgcolor: theme.plot,
       xaxis: plot3dAxisLayout(plotSpec.xTitle, theme),
@@ -1740,17 +1743,63 @@ function plot3dLayout(plotSpec, theme) {
       camera: { eye: { x: 1.45, y: -1.75, z: 1.1 } },
       aspectmode: "cube",
     },
-    legend: {
-      bgcolor: theme.legend,
-      bordercolor: theme.axis,
-      borderwidth: 1,
-      font: { color: theme.text, size: 12 },
-      x: 1,
-      xanchor: "right",
-      y: 1,
-      yanchor: "top",
-    },
+    showlegend: legend.show,
+    legend: legend.layout,
     colorway: plotMethodColors(),
+  };
+}
+
+function plotLegendLayout(plotSpec, theme, is3d = false) {
+  const traceCount = (plotSpec.traces || []).filter((trace) => trace.showlegend !== false).length;
+  const mode = state.plotLegend === "auto"
+    ? (traceCount > (is3d ? 10 : 8) ? "outside" : "inside")
+    : state.plotLegend;
+  const fontSize = traceCount > 35 ? 10 : traceCount > 16 ? 11 : is3d ? 12 : 14;
+  const base = {
+    bgcolor: theme.legend,
+    bordercolor: theme.axis,
+    borderwidth: 1,
+    font: { color: theme.text, size: fontSize },
+    itemsizing: "constant",
+    traceorder: "normal",
+  };
+  if (mode === "hidden" || !traceCount) return { show: false, mode, layout: base };
+  if (mode === "outside") {
+    return {
+      show: true,
+      mode,
+      layout: {
+        ...base,
+        x: 1.015,
+        xanchor: "left",
+        y: 1,
+        yanchor: "top",
+        maxheight: 0.9,
+      },
+    };
+  }
+  return {
+    show: true,
+    mode: "inside",
+    layout: {
+      ...base,
+      x: 0.985,
+      xanchor: "right",
+      y: 0.02,
+      yanchor: "bottom",
+      maxheight: 0.34,
+    },
+  };
+}
+
+function plotMargins(plotSpec, legend) {
+  const rightAxis = plotSpec.y2Title ? 92 : 34;
+  const rightLegend = legend.mode === "outside" && legend.show ? 214 : 0;
+  return {
+    t: 62,
+    r: Math.max(rightAxis, rightLegend),
+    b: 72,
+    l: 86,
   };
 }
 
@@ -1804,6 +1853,12 @@ function renderEmptyPlot() {
 function resizePlotCanvas() {
   if (!window.Plotly || !el.plotCanvas) return;
   window.setTimeout(() => Plotly.Plots.resize(el.plotCanvas), 60);
+}
+
+function syncPlotCanvasSize() {
+  if (!el.plotCanvas) return;
+  el.plotCanvas.classList.toggle("compact", state.plotSize === "compact");
+  el.plotCanvas.classList.toggle("tall", state.plotSize === "tall");
 }
 
 function buildPlotPreset(table, method = state.plotMethod) {

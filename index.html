@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BatBat Project</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-    <link rel="stylesheet" href="styles.css?v=20260627-8" />
+    <link rel="stylesheet" href="styles.css?v=20260627-9" />
   </head>
   <body>
     <div class="app-shell">
@@ -205,6 +205,23 @@
                 <label class="color-control">
                   Color
                   <input id="plotColorInput" type="color" value="#2563eb" />
+                </label>
+                <label>
+                  Legend
+                  <select id="plotLegendSelect">
+                    <option value="auto">Auto</option>
+                    <option value="outside">Outside</option>
+                    <option value="inside">Inside</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </label>
+                <label>
+                  Plot size
+                  <select id="plotSizeSelect">
+                    <option value="fit">Fit</option>
+                    <option value="compact">Compact</option>
+                    <option value="tall">Tall</option>
+                  </select>
                 </label>
                 <label>
                   Line width <span id="plotLineWidthValue">2.4</span>
@@ -556,6 +573,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
-    <script src="app.js?v=20260627-8"></script>
+    <script src="app.js?v=20260627-9"></script>
   </body>
 </html>

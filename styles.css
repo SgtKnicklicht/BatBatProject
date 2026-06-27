@@ -1131,7 +1131,15 @@ input[type="range"] {
 
 .plot-canvas {
   width: 100%;
-  min-height: clamp(450px, calc(100dvh - 245px), 700px);
+  min-height: clamp(420px, calc(100dvh - 285px), 640px);
+}
+
+.plot-canvas.compact {
+  min-height: clamp(340px, calc(100dvh - 365px), 500px);
+}
+
+.plot-canvas.tall {
+  min-height: clamp(560px, calc(100dvh - 190px), 820px);
 }
 
 .converter-grid {
