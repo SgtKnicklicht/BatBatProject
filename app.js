@@ -30,7 +30,6 @@ const PLOT_METHODS = {
   cv: { short: "I-V", label: "I vs V", hint: "CV current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   cd: { short: "V-Cap", label: "V vs Cap / Spec Cap", hint: "voltage vs capacity or specific capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   "cd-time": { short: "V-t", label: "V vs t", hint: "voltage vs total time", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
-  "v-cycle": { short: "V-#", label: "V vs #", hint: "voltage vs cycle or point index", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   rate: { short: "Cap/CE", label: "Spec Cap + CE vs #", hint: "specific capacity and CE vs cycle index", colors: ["#ef4444", "#111111", "#2563eb", "#ed7953"] },
   "rate-time": { short: "Cap/CE-t", label: "Spec Cap + CE vs t", hint: "specific capacity and CE vs total time", colors: ["#ef4444", "#111111", "#2563eb", "#ed7953"] },
   dqdv: { short: "dQ/dV", label: "dQ/dV", hint: "derivative from CD data", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
@@ -39,7 +38,7 @@ const PLOT_METHODS = {
   custom: { short: "Custom", hint: "custom axes", colors: ["#0d0887", "#9c179e", "#ed7953", "#f0f921"] },
 };
 const PLOT_FAMILIES = {
-  voltage: { label: "Voltage", methods: ["cd-time", "v-cycle", "cd"] },
+  voltage: { label: "Voltage", methods: ["cd-time", "cd"] },
   cv: { label: "CV", methods: ["cv"] },
   capacity: { label: "Cap + CE", methods: ["rate", "rate-time"] },
   dqdv: { label: "dQ/dV", methods: ["dqdv"] },
@@ -1461,9 +1460,6 @@ function inferDatasetMethods(name, sheets) {
     methods.add("cd");
     methods.add("dqdv");
   }
-  if (hasVoltageColumn(headers) && (findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]) || pointIndexColumn(headers))) {
-    methods.add("v-cycle");
-  }
   if (hasCycleSummaryColumns(headers)) {
     methods.add("rate");
   }
@@ -1492,8 +1488,8 @@ function primaryDatasetType(name, sheets, methods = inferDatasetMethods(name, sh
 
 function methodsForDatasetType(type) {
   if (type === "metadata") return [];
-  if (type === "cd") return ["cd-time", "v-cycle", "cd", "rate", "rate-time", "dqdv"];
-  if (type === "rate") return ["rate", "rate-time", "dqdv", "cd-time", "v-cycle", "cd"];
+  if (type === "cd") return ["cd-time", "cd", "rate", "rate-time", "dqdv"];
+  if (type === "rate") return ["rate", "rate-time", "dqdv", "cd-time", "cd"];
   return [type || "custom"];
 }
 
@@ -1568,7 +1564,7 @@ function availablePlotFamilies() {
   const families = new Set();
   state.datasets.filter(isDatasetEnabled).forEach((dataset) => {
     families.add(datasetFamily(dataset));
-    if (dataset.methods?.includes("cd") || dataset.methods?.includes("v-cycle") || dataset.type === "rate") families.add("voltage");
+    if (dataset.methods?.includes("cd") || dataset.type === "rate") families.add("voltage");
     if (supportsCapacityFamily(dataset)) families.add("capacity");
     if (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type)) families.add("dqdv");
   });
@@ -1581,7 +1577,7 @@ function datasetsForFamily(family) {
     .filter(isDatasetEnabled)
     .filter((dataset) => {
       if (datasetFamily(dataset) === family) return true;
-      if (family === "voltage") return dataset.methods?.includes("cd") || dataset.methods?.includes("v-cycle") || dataset.type === "rate";
+      if (family === "voltage") return dataset.methods?.includes("cd") || dataset.type === "rate";
       if (family === "capacity") return supportsCapacityFamily(dataset);
       return family === "dqdv" && (dataset.methods?.includes("dqdv") || ["cd", "rate"].includes(dataset.type));
     });
@@ -1818,7 +1814,6 @@ function buildPlotPreset(table, method = state.plotMethod) {
   const time = totalTimeColumn(headers) || findColumn(headers, ["Elapsed Time (s)", "Total Time", "Test Time", "Time", "Step Time"]);
   const charge = capacityColumn(headers);
   const cycle = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
-  const pointIndex = pointIndexColumn(headers);
   const dchg = findColumn(headers, ["DChg. Cap.(Ah)", "Discharge Capacity", "DChg Cap", "Capacity(Ah)"]);
   const zReal = findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]);
   const zImag = findColumn(headers, ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance", "Z'' (ohms)", "Z'' (ohm)"]);
@@ -1827,7 +1822,6 @@ function buildPlotPreset(table, method = state.plotMethod) {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
     cd: { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     "cd-time": { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
-    "v-cycle": { xColumn: cycle || pointIndex, yColumns: voltageIndexColumns(headers), mode: "lines+markers" },
     rate: { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     "rate-time": { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     dqdv: { xColumn: voltage, yColumns: [charge].filter(Boolean), mode: "lines" },
@@ -2682,34 +2676,6 @@ function isCapacityColumn(column) {
 function voltageColumn(headers) {
   return electrochemicalVoltageColumn(headers)
     || findColumn(headers, ["DC Working Electrode (V)", "DC Voltage (V)", "DC Voltage"]);
-}
-
-function voltageIndexColumns(headers) {
-  const columns = [];
-  [
-    "Oneset Volt.(V)",
-    "Onset Volt.(V)",
-    "Onset Voltage(V)",
-    "Onset Voltage (V)",
-    "Start Voltage(V)",
-    "Start Voltage (V)",
-    "End Voltage(V)",
-    "End Voltage (V)",
-    "End Volt.(V)",
-    "End Volt. (V)",
-    "Voltage(V)",
-    "Voltage (V)",
-  ].forEach((candidate) => {
-    const column = findColumn(headers, [candidate]);
-    if (column && !columns.includes(column)) columns.push(column);
-  });
-  const fallback = voltageColumn(headers);
-  if (fallback && !columns.includes(fallback)) columns.push(fallback);
-  return columns;
-}
-
-function pointIndexColumn(headers) {
-  return findColumn(headers, ["DataPoint", "Data Point", "Point", "Point Index", "Step Number", "Step Index", "Index"]);
 }
 
 function currentColumn(headers) {
@@ -3877,7 +3843,6 @@ function preferredSheetName(dataset, method = state.plotMethod) {
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
     "cd-time": ["record", "data", "cycle"],
-    "v-cycle": ["cycle", "record", "data"],
     cv: ["data", "record"],
     eis: ["data", "record"],
     gitt: ["data", "record"],
@@ -4408,7 +4373,6 @@ function plotExportLabel(spec = null) {
   if (method === "rate-time") return "rate_capacity_ce_vs_total_time";
   if (method === "cd") return "cd_voltage_vs_capacity";
   if (method === "cd-time") return "cd_voltage_vs_total_time";
-  if (method === "v-cycle") return "voltage_vs_cycle_index";
   if (method === "cv") return state.plot3d ? "cv_3d_stack" : "cv_current_vs_voltage";
   if (method === "dqdv") return state.plot3d ? "dqdv_3d_stack" : "dqdv_derivative";
   if (method === "eis") return "eis_nyquist";
