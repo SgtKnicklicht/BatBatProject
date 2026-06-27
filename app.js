@@ -1401,6 +1401,7 @@ function isActiveMassLabel(value) {
     .toLowerCase()
     .replace(/[_\-]+/g, " ")
     .replace(/\s+/g, " ");
+  if (text === "active material" || text === "active material mass") return true;
   if (!text.includes("mass")) return false;
   return (
     text.includes("active material") ||
