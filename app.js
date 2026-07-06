@@ -30,6 +30,7 @@ const PLOT_METHODS = {
   cv: { short: "I-V", label: "I vs V", hint: "CV current vs voltage", colors: ["#3b3b3b", "#ef4444", "#2563eb", "#9c179e"] },
   cd: { short: "V-Cap", label: "V vs Cap / Spec Cap", hint: "voltage vs capacity or specific capacity", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   "cd-time": { short: "V-t", label: "V vs t", hint: "voltage vs total time", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
+  "cap-time": { short: "Cap-t", label: "Cap vs t", hint: "capacity vs total time", colors: ["#0d0887", "#5b02a3", "#9c179e", "#cc4778"] },
   rate: { short: "Cap/CE", label: "Spec Cap + CE vs #", hint: "specific capacity and CE vs cycle index", colors: ["#ef4444", "#111111", "#2563eb", "#ed7953"] },
   "rate-time": { short: "Cap/CE-t", label: "Spec Cap + CE vs t", hint: "specific capacity and CE vs total time", colors: ["#ef4444", "#111111", "#2563eb", "#ed7953"] },
   dqdv: { short: "dQ/dV", label: "dQ/dV", hint: "derivative from CD data", colors: ["#7e03a8", "#cc4778", "#ed7953", "#1f6feb"] },
@@ -38,7 +39,7 @@ const PLOT_METHODS = {
   custom: { short: "Custom", hint: "custom axes", colors: ["#0d0887", "#9c179e", "#ed7953", "#f0f921"] },
 };
 const PLOT_FAMILIES = {
-  voltage: { label: "Voltage", methods: ["cd-time", "cd"] },
+  voltage: { label: "CD traces", methods: ["cd-time", "cd", "cap-time"] },
   cv: { label: "CV", methods: ["cv"] },
   capacity: { label: "Cap + CE", methods: ["rate", "rate-time"] },
   dqdv: { label: "dQ/dV", methods: ["dqdv"] },
@@ -55,6 +56,18 @@ const DATASET_TYPES = {
   gitt: "GITT",
   custom: "Custom",
   metadata: "Notes",
+};
+const SQUIDSTAT_COMBINED_COLUMNS = {
+  cycleKey: "BatBat Cycle Key",
+  cycleLabel: "BatBat Cycle Label",
+  halfCycle: "BatBat Half Cycle",
+  sourceFile: "BatBat Source File",
+  segment: "BatBat Segment",
+  stepKind: "BatBat Step Kind",
+  timeHours: "BatBat Time (h)",
+  timeSeconds: "BatBat Time (s)",
+  capacity: "BatBat Capacity (mAh)",
+  signedCapacity: "BatBat Signed Capacity (mAh)",
 };
 
 const state = {
@@ -1023,7 +1036,10 @@ function bindFiles() {
       el.dropZone.classList.remove("dragover");
     });
   });
-  el.dropZone.addEventListener("drop", (event) => handleFiles([...event.dataTransfer.files]));
+  el.dropZone.addEventListener("drop", async (event) => {
+    const files = await filesFromDropEvent(event);
+    handleFiles(files);
+  });
 
   el.datasetSelect.addEventListener("change", () => {
     state.selectedDatasetId = el.datasetSelect.value;
@@ -1243,6 +1259,52 @@ function bindReports() {
   });
 }
 
+async function filesFromDropEvent(event) {
+  const items = [...(event.dataTransfer?.items || [])];
+  if (!items.length) return [...(event.dataTransfer?.files || [])];
+  const files = [];
+  await Promise.all(items.map((item) => collectDroppedItemFiles(item, files)));
+  return files.length ? files : [...(event.dataTransfer?.files || [])];
+}
+
+async function collectDroppedItemFiles(item, files) {
+  const entry = item.webkitGetAsEntry?.();
+  if (!entry) {
+    const file = item.getAsFile?.();
+    if (file) files.push(file);
+    return;
+  }
+  await collectFileEntry(entry, files);
+}
+
+function collectFileEntry(entry, files) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((file) => {
+        files.push(file);
+        resolve();
+      }, resolve);
+      return;
+    }
+    if (!entry.isDirectory) {
+      resolve();
+      return;
+    }
+    const reader = entry.createReader();
+    const readBatch = () => {
+      reader.readEntries(async (entries) => {
+        if (!entries.length) {
+          resolve();
+          return;
+        }
+        await Promise.all(entries.map((child) => collectFileEntry(child, files)));
+        readBatch();
+      }, resolve);
+    };
+    readBatch();
+  });
+}
+
 async function handleFiles(files) {
   const usable = files.filter((file) => /\.(xlsx|xls|csv|tsv|txt)$/i.test(file.name));
   if (!usable.length) return;
@@ -1251,8 +1313,9 @@ async function handleFiles(files) {
   for (const file of usable) {
     parsed.push(await parseFile(file));
   }
-  state.datasets.push(...parsed);
-  const firstPlottable = parsed.find((dataset) => Object.keys(dataset.sheets).length && dataset.enabled !== false) || parsed[0];
+  const imported = buildImportedDatasets(parsed);
+  state.datasets.push(...imported);
+  const firstPlottable = imported.find((dataset) => Object.keys(dataset.sheets).length && dataset.enabled !== false) || imported[0];
   state.selectedDatasetId = firstPlottable.id;
   state.selectedSheet = preferredSheetName(firstPlottable);
   state.plotFamily = datasetFamily(firstPlottable);
@@ -1321,6 +1384,229 @@ async function parseFile(file) {
     enabled: true,
     sheets,
   };
+}
+
+function buildImportedDatasets(datasets) {
+  const combined = [];
+  const consumed = new Set();
+  const groups = squidstatCyclingGroups(datasets);
+
+  groups.forEach((group) => {
+    if (group.segments.length < 2) return;
+    const dataset = buildCombinedSquidstatDataset(group);
+    if (!dataset) return;
+    combined.push(dataset);
+    group.segments.forEach((segment) => consumed.add(segment.dataset.id));
+  });
+
+  return [
+    ...combined,
+    ...datasets.filter((dataset) => !consumed.has(dataset.id)),
+  ];
+}
+
+function squidstatCyclingGroups(datasets) {
+  const groups = new Map();
+  datasets.forEach((dataset) => {
+    const segments = squidstatCyclingSegments(dataset);
+    segments.forEach((segment) => {
+      const key = squidstatExperimentKey(dataset.name);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          name: squidstatExperimentName(dataset.name),
+          segments: [],
+        });
+      }
+      groups.get(key).segments.push(segment);
+    });
+  });
+  return [...groups.values()];
+}
+
+function squidstatCyclingSegments(dataset) {
+  if (dataset?.kind !== "squidstat") return [];
+  const table = dataset.sheets?.data || Object.values(dataset.sheets || {})[0];
+  if (!table?.headers?.length || !table.rows?.length) return [];
+
+  const headers = table.headers;
+  const timeCol = totalTimeColumn(headers);
+  const voltageCol = voltageColumn(headers);
+  const capacityCol = capacityColumn(headers);
+  const typeCol = findColumn(headers, ["Step Type", "Step Name", "Step name", "State"]);
+  if (!timeCol || !voltageCol || !capacityCol || !typeCol) return [];
+
+  return electrochemicalStepSegments(table.rows, headers)
+    .filter((segment) => isElectrochemicalKind(segment.kind))
+    .map((segment, index) => ({
+      dataset,
+      table,
+      headers,
+      rows: segment.rows,
+      index,
+      kind: segment.kind,
+      typeCol,
+      timeCol,
+      voltageCol,
+      capacityCol,
+      startSeconds: segmentStartSeconds(segment.rows, timeCol),
+      fileOrder: squidstatFileOrder(dataset.name),
+      explicitCycle: squidstatExplicitCycle(segment.rows, headers, dataset.name),
+    }));
+}
+
+function buildCombinedSquidstatDataset(group) {
+  const segments = [...group.segments].sort(compareSquidstatSegments);
+  assignSquidstatCycleKeys(segments);
+
+  const sourceHeaders = [];
+  segments.forEach((segment) => {
+    segment.headers.forEach((header) => {
+      if (!sourceHeaders.includes(header)) sourceHeaders.push(header);
+    });
+  });
+
+  const helperHeaders = Object.values(SQUIDSTAT_COMBINED_COLUMNS);
+  const headers = [...helperHeaders, ...sourceHeaders.filter((header) => !helperHeaders.includes(header))];
+  const rows = segments.flatMap((segment, segmentIndex) => {
+    const halfCycle = segment.kind === "charge" ? "Charge" : "Discharge";
+    return segment.rows.map((row) => {
+      const signedCapacity = capacityToMAh(readNumber(row[segment.capacityCol]), segment.capacityCol);
+      const timeHours = timeValueToHours(row[segment.timeCol], segment.timeCol);
+      const timeSeconds = Number.isFinite(timeHours) ? timeHours * 3600 : readNumber(row[segment.timeCol]);
+      const combinedRow = {};
+      headers.forEach((header) => {
+        combinedRow[header] = row[header] ?? "";
+      });
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.cycleKey] = segment.cycleKey;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.cycleLabel] = segment.cycleLabel;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.halfCycle] = halfCycle;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.sourceFile] = segment.dataset.name;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.segment] = segmentIndex + 1;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.stepKind] = segment.kind;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.timeHours] = timeHours;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.timeSeconds] = timeSeconds;
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.capacity] = Math.abs(signedCapacity);
+      combinedRow[SQUIDSTAT_COMBINED_COLUMNS.signedCapacity] = signedCapacity;
+      return combinedRow;
+    });
+  });
+
+  if (!rows.length) return null;
+  const sheets = { "combined cycles": { headers, rows, rowCount: rows.length } };
+  return {
+    id: crypto.randomUUID(),
+    name: `${group.name} - Squidstat combined cycles`,
+    kind: "squidstat",
+    type: "cd",
+    methods: ["cd", "cap-time", "dqdv"],
+    activeMassMg: inferActiveMassMgFromSheets(sheets),
+    activeMassSource: "",
+    enabled: true,
+    sheets,
+  };
+}
+
+function compareSquidstatSegments(a, b) {
+  const aTime = Number.isFinite(a.startSeconds) ? a.startSeconds : Number.POSITIVE_INFINITY;
+  const bTime = Number.isFinite(b.startSeconds) ? b.startSeconds : Number.POSITIVE_INFINITY;
+  if (aTime !== bTime) return aTime - bTime;
+  if (a.fileOrder !== b.fileOrder) return a.fileOrder - b.fileOrder;
+  if (a.index !== b.index) return a.index - b.index;
+  return a.dataset.name.localeCompare(b.dataset.name);
+}
+
+function assignSquidstatCycleKeys(segments) {
+  const firstExplicitIndex = segments.findIndex((segment) => Number.isFinite(segment.explicitCycle));
+  const hasExplicit = firstExplicitIndex >= 0;
+  let preCycle = 0;
+  let inferredCycle = 0;
+  let postCycle = Math.max(0, ...segments.map((segment) => segment.explicitCycle).filter(Number.isFinite));
+  let activeInferred = null;
+
+  segments.forEach((segment, index) => {
+    if (Number.isFinite(segment.explicitCycle)) {
+      segment.cycleKey = segment.explicitCycle;
+      segment.cycleLabel = `Cycle ${formatCycleValue(segment.explicitCycle)}`;
+      activeInferred = null;
+      return;
+    }
+
+    if (hasExplicit && index < firstExplicitIndex) {
+      if (!activeInferred || segment.kind === "charge") {
+        preCycle += 1;
+        activeInferred = { key: -preCycle, label: `Pre-cycle ${preCycle}` };
+      }
+      segment.cycleKey = activeInferred.key;
+      segment.cycleLabel = activeInferred.label;
+      if (segment.kind === "discharge") activeInferred = null;
+      return;
+    }
+
+    if (!activeInferred || segment.kind === "charge") {
+      if (hasExplicit) {
+        postCycle += 1;
+        activeInferred = { key: postCycle, label: `Inferred cycle ${postCycle}` };
+      } else {
+        inferredCycle += 1;
+        activeInferred = { key: inferredCycle, label: `Cycle ${inferredCycle}` };
+      }
+    }
+    segment.cycleKey = activeInferred.key;
+    segment.cycleLabel = activeInferred.label;
+    if (segment.kind === "discharge") activeInferred = null;
+  });
+}
+
+function segmentStartSeconds(rows, timeCol) {
+  const values = rows.map((row) => readNumber(row[timeCol])).filter(Number.isFinite);
+  return values.length ? Math.min(...values) : Number.POSITIVE_INFINITY;
+}
+
+function squidstatExplicitCycle(rows, headers, name) {
+  const cycleColumn = findColumn(headers, ["Cycle #", "Cycle Index", "Cycle", "Cycle number"]);
+  if (cycleColumn) {
+    const values = rows
+      .map((row) => readNumber(row[cycleColumn]))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (values.length) return values[0];
+  }
+  const match = squidstatBaseName(name).match(/(?:^|[_\s-])cycle\s*(\d+(?:[.,]\d+)?)(?:[_\s-]|$)/i);
+  return match ? readNumber(match[1]) : NaN;
+}
+
+function squidstatFileOrder(name) {
+  const match = squidstatBaseName(name).match(/^(\d+)/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
+function squidstatExperimentKey(name) {
+  return normalizeColumnName(squidstatExperimentName(name)) || safeName(name);
+}
+
+function squidstatExperimentName(name) {
+  let base = squidstatBaseName(name);
+  const hasCycleToken = /(?:^|[_\s-])cycle\s*\d+(?:[.,]\d+)?(?:[_\s-]|$)/i.test(base);
+  base = base.replace(/^quiettime[_\s-]*/i, "");
+  base = base.replace(/^\d+[_\s-]*/, "");
+  base = base.replace(/^cycle\s*\d+(?:[.,]\d+)?[_\s-]*/i, "");
+  base = base.replace(/[_\s-]cycle\s*\d+(?:[.,]\d+)?(?=[_\s-]|$)/i, "_");
+  if (hasCycleToken) base = base.replace(/_\d+$/i, "");
+  base = base.replace(/\s+Plus\d+.*$/i, "");
+  base = base.replace(/\s+\(\d{4}-\d{2}-\d{2}.*\)$/i, "");
+  return base.replace(/[_\s-]+$/g, "").trim() || squidstatBaseName(name);
+}
+
+function squidstatBaseName(name) {
+  return String(name || "squidstat")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/\.[^.]+$/, "");
+}
+
+function formatCycleValue(value) {
+  return Number.isInteger(value) ? String(value) : formatNumber(value);
 }
 
 function repairSheetRange(sheet) {
@@ -1468,6 +1754,7 @@ function inferDatasetMethods(name, sheets) {
   }
   if (hasVoltageColumn(headers) && hasCapacityColumn(headers)) {
     methods.add("cd");
+    if (totalTimeColumn(headers)) methods.add("cap-time");
     methods.add("dqdv");
   }
   if (hasCycleSummaryColumns(headers)) {
@@ -1498,7 +1785,7 @@ function primaryDatasetType(name, sheets, methods = inferDatasetMethods(name, sh
 
 function methodsForDatasetType(type) {
   if (type === "metadata") return [];
-  if (type === "cd") return ["cd-time", "cd", "rate", "rate-time", "dqdv"];
+  if (type === "cd") return ["cd-time", "cd", "cap-time", "rate", "rate-time", "dqdv"];
   if (type === "rate") return ["rate", "rate-time", "dqdv", "cd-time", "cd"];
   return [type || "custom"];
 }
@@ -1878,6 +2165,7 @@ function buildPlotPreset(table, method = state.plotMethod) {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
     cd: { xColumn: charge || time, yColumns: [voltage].filter(Boolean), mode: "lines" },
     "cd-time": { xColumn: time, yColumns: [voltage].filter(Boolean), mode: "lines" },
+    "cap-time": { xColumn: time, yColumns: [charge].filter(Boolean), mode: "lines" },
     rate: { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     "rate-time": { xColumn: cycle, yColumns: [dchg || charge].filter(Boolean), mode: "lines+markers" },
     dqdv: { xColumn: voltage, yColumns: [charge].filter(Boolean), mode: "lines" },
@@ -1915,7 +2203,7 @@ function buildPlotSpec(table, dataset) {
   if (method === "cv" && state.plotOverlayFiles) {
     return buildOverlayCvSpec(dataset);
   }
-  if (method === "cd" || method === "cd-time") {
+  if (method === "cd" || method === "cd-time" || method === "cap-time") {
     return buildCdSpec(table, dataset, preset, method);
   }
   if (method === "rate" || method === "rate-time") return buildRateSpec(table, dataset, method);
@@ -1985,12 +2273,15 @@ function buildCdSpec(table, dataset, preset, method) {
   if (method === "cd" && !isCapacityColumn(preset.xColumn)) {
     return { traces: [], message: "Voltage vs capacity needs a charge/capacity column. Try the V-t variant for time data." };
   }
+  if (method === "cap-time" && !isTimeColumn(preset.xColumn)) {
+    return { traces: [], message: "Capacity vs time needs a total elapsed time column." };
+  }
 
   const xColumn = preset.xColumn;
   const yColumn = preset.yColumns[0];
   const xSeries = transformAxisValues(table.rows, xColumn, "x", method, massMg);
   const ySeries = transformAxisValues(table.rows, yColumn, "y", method, massMg);
-  const groups = cdCycleGroupsForPlot(table, method === "cd" ? xColumn : capacityColumn(table.headers));
+  const groups = cdCycleGroupsForPlot(table, method === "cd" || method === "cap-time" ? capacityColumn(table.headers) : "");
   let selectedGroups = selectedCycleGroups(groups);
   const cycleFilterFallback = !selectedGroups.length && groups.length;
   if (cycleFilterFallback) selectedGroups = groups;
@@ -2000,13 +2291,21 @@ function buildCdSpec(table, dataset, preset, method) {
   const colors = gradientColors(state.plotGradient, selectedGroups.length || 1);
   const traces = selectedGroups.map(([cycle, rows], index) => {
     const style = plotTraceStyle(index, { color: colors[index] });
-    const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, method !== "cd-time");
+    const series = pairedSeriesWithBreaks(
+      rows,
+      xColumn,
+      yColumn,
+      method,
+      massMg,
+      method === "cd",
+      method === "cd" || method === "cap-time",
+    );
     return {
       x: series.x,
       y: series.y,
       type: "scatter",
       mode: state.plotMode,
-      name: cycle === null ? "CD" : `Cycle ${cycle}`,
+      name: cycleTraceName(cycle, rows),
       line: style.line,
       marker: style.marker,
     };
@@ -2017,15 +2316,44 @@ function buildCdSpec(table, dataset, preset, method) {
     title: plotTitle(dataset),
     xTitle: xSeries.title,
     yTitle: ySeries.title,
-    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
+    hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" || method === "cap-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
 }
 
 function cdCycleGroupsForPlot(table, resetColumn = "") {
+  const batbatCycleColumn = exactColumn(table.headers, [SQUIDSTAT_COMBINED_COLUMNS.cycleKey]);
+  if (batbatCycleColumn) {
+    const groups = batbatCycleGroups(table.rows, batbatCycleColumn);
+    if (groups.length) return groups;
+  }
   const paired = pairedElectrochemicalCycleGroups(table.rows, table.headers);
   if (paired.length) return paired;
   const cycleColumn = findCycleColumn(table.headers, table.rows);
   return cycleGroupsForPlot(table.rows, cycleColumn, resetColumn);
+}
+
+function batbatCycleGroups(rows, cycleColumn) {
+  const labelColumn = exactColumn(Object.keys(rows[0] || {}), [SQUIDSTAT_COMBINED_COLUMNS.cycleLabel]);
+  const groups = new Map();
+  rows.forEach((row) => {
+    const cycle = readNumber(row[cycleColumn]);
+    if (!Number.isFinite(cycle)) return;
+    const key = Number.isInteger(cycle) ? cycle : Number(cycle.toFixed(6));
+    if (!groups.has(key)) groups.set(key, { rows: [], label: "" });
+    const group = groups.get(key);
+    group.rows.push(row);
+    if (!group.label && labelColumn) group.label = String(row[labelColumn] || "").trim();
+  });
+  return [...groups.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([cycle, group]) => [cycle, group.rows, group.label]);
+}
+
+function cycleTraceName(cycle, rows) {
+  const labelColumn = exactColumn(Object.keys(rows[0] || {}), [SQUIDSTAT_COMBINED_COLUMNS.cycleLabel]);
+  const label = labelColumn ? String(rows.find((row) => row[labelColumn])?.[labelColumn] || "").trim() : "";
+  if (label) return label;
+  return cycle === null ? "CD" : `Cycle ${formatCycleValue(cycle)}`;
 }
 
 function buildRateSpec(table, dataset, method) {
@@ -2274,6 +2602,7 @@ function buildDqdvSpec(table, dataset, preset) {
   let rawPointCount = 0;
 
   groups.forEach(([cycle, rows], groupIndex) => {
+    const traceName = cycleTraceName(cycle, rows);
     const qv = qvSegments(rows, preset.xColumn, preset.yColumns[0], massMg, minDv);
     const raw = derivativeFromQvSegments(qv, minDv);
     rawPointCount += raw.y.filter(Number.isFinite).length;
@@ -2287,7 +2616,7 @@ function buildDqdvSpec(table, dataset, preset) {
         y: raw.y,
         type: "scatter",
         mode: state.plotMode,
-        name: cycle === null ? "Raw dQ/dV" : `Raw C${cycle}`,
+        name: cycle === null ? "Raw dQ/dV" : `Raw ${traceName}`,
         line: { ...style.line, width: Math.max(1, state.plotLineWidth * 0.55), dash: "dot" },
         marker: style.marker,
         opacity: 0.38,
@@ -2303,7 +2632,7 @@ function buildDqdvSpec(table, dataset, preset) {
           z: processed.y,
           type: "scatter3d",
           mode: "lines",
-          name: cycle === null ? `Trace ${groupIndex + 1}` : `Cycle ${cycle}`,
+          name: cycle === null ? `Trace ${groupIndex + 1}` : traceName,
           line: { color: colors[groupIndex], width: Math.max(2, state.plotLineWidth + 1) },
         });
       } else {
@@ -2312,7 +2641,7 @@ function buildDqdvSpec(table, dataset, preset) {
           y: processed.y,
           type: "scatter",
           mode: state.plotMode,
-          name: cycle === null ? yTitle : `Cycle ${cycle}`,
+          name: cycle === null ? yTitle : traceName,
           line: style.line,
           marker: style.marker,
         });
@@ -2386,7 +2715,7 @@ function transformAxisValues(rows, column, axis, method, massMg) {
     if (axis === "x" && method === "cd" && massG) {
       return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
-    if (axis === "y" && (method === "rate" || method === "cd") && massG) {
+    if (axis === "y" && (method === "rate" || method === "cd" || method === "cap-time") && massG) {
       return { values: capacityMAh.map((value) => value / massG), title: "Specific capacity [mAh/g]" };
     }
     return { values: capacityMAh, title: "Capacity [mAh]" };
@@ -2400,13 +2729,14 @@ function numericSeries(rows, column) {
   return rows.map((row) => readNumber(row[column]));
 }
 
-function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnXReset = false) {
+function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnXReset = false, breakOnKindChange = false) {
   const xSeries = transformAxisValues(rows, xColumn, "x", method, massMg).values;
   const ySeries = transformAxisValues(rows, yColumn, "y", method, massMg).values;
   const typeColumn = findColumn(Object.keys(rows[0] || {}), ["Step Type", "Step Name", "State"]);
   const x = [];
   const y = [];
   let lastX = null;
+  let lastKind = "";
 
   xSeries.forEach((xValue, index) => {
     const yValue = ySeries[index];
@@ -2417,9 +2747,15 @@ function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnX
         y.push(null);
       }
       lastX = null;
+      lastKind = "";
       return;
     }
     if (!Number.isFinite(xValue) || !Number.isFinite(yValue)) return;
+    if (breakOnKindChange && lastKind && kind && kind !== lastKind) {
+      x.push(null);
+      y.push(null);
+      lastX = null;
+    }
     if (breakOnXReset && lastX !== null && xValue < lastX - 1e-8) {
       x.push(null);
       y.push(null);
@@ -2427,6 +2763,7 @@ function pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnX
     x.push(xValue);
     y.push(yValue);
     lastX = xValue;
+    lastKind = kind || lastKind;
   });
 
   return { x, y };
@@ -2706,7 +3043,7 @@ function isTimeColumn(column) {
 }
 
 function totalTimeColumn(headers) {
-  const preferred = ["Total Time", "Total Time (s)", "Test Time", "Test Time (s)", "Elapsed Time", "Elapsed Time (s)"];
+  const preferred = [SQUIDSTAT_COMBINED_COLUMNS.timeHours, "Total Time", "Total Time (s)", "Test Time", "Test Time (s)", "Elapsed Time", "Elapsed Time (s)"];
   const exact = exactColumn(headers, preferred);
   if (exact) return exact;
 
@@ -2741,7 +3078,9 @@ function currentColumn(headers) {
 
 function capacityColumn(headers) {
   return exactColumn(headers, [
+    SQUIDSTAT_COMBINED_COLUMNS.capacity,
     "Cumulative Charge (mAh)",
+    "CC-CV Cumulative Capacity (mAh)",
     "Capacity(Ah)",
     "Capacity (Ah)",
     "Capacity(mAh)",
@@ -3151,6 +3490,8 @@ function segmentCapacityMAh(rows, capacityCol) {
 }
 
 function dqdvGroupsForPlot(table, dataset, capacityCol) {
+  const batbatCycleColumn = exactColumn(table.headers, [SQUIDSTAT_COMBINED_COLUMNS.cycleKey]);
+  if (batbatCycleColumn) return selectedCycleGroups(batbatCycleGroups(table.rows, batbatCycleColumn));
   const pairedCycles = pairedElectrochemicalCycleGroups(table.rows, table.headers);
   if (pairedCycles.length > 1) return selectedCycleGroups(pairedCycles);
   const cycleColumn = findCycleColumn(table.headers, table.rows);
@@ -3899,6 +4240,7 @@ function preferredSheetName(dataset, method = state.plotMethod) {
     dqdv: ["record", "data", "cycle"],
     cd: ["record", "data", "cycle"],
     "cd-time": ["record", "data", "cycle"],
+    "cap-time": ["record", "data", "cycle"],
     cv: ["data", "record"],
     eis: ["data", "record"],
     gitt: ["data", "record"],
@@ -3951,7 +4293,7 @@ function syncAdvancedPlotControls() {
     el.dqdvControls.open = state.plotMethod === "dqdv";
   }
   if (el.cycleControls) {
-    el.cycleControls.hidden = !["cd", "cd-time", "rate", "rate-time", "dqdv"].includes(state.plotMethod);
+    el.cycleControls.hidden = !["cd", "cd-time", "cap-time", "rate", "rate-time", "dqdv"].includes(state.plotMethod);
   }
 }
 
@@ -3962,13 +4304,39 @@ function exportSelectedCsv() {
   const spec = buildPlotSpec(table, dataset);
   if (!spec.traces.length) return;
   const traces = orderedTracesForExport(spec.traces);
-  const headers = [spec.xTitle, ...traces.map((trace) => trace.name)];
-  const rowCount = Math.max(...traces.map((trace) => trace.x.length));
-  const rows = Array.from({ length: rowCount }, (_, index) => [
-    traces[0].x[index],
-    ...traces.map((trace) => trace.y[index]),
-  ]);
-  downloadText(`${plotExportBaseName(dataset, spec)}.csv`, toCsv([headers, ...rows]));
+  downloadText(`${plotExportBaseName(dataset, spec)}.csv`, toCsv(plotTraceCsvRows(spec, traces)));
+}
+
+function plotTraceCsvRows(spec, traces) {
+  const headers = traces.flatMap((trace) => {
+    const name = plainText(trace.name || "Trace");
+    const yTitle = trace.yaxis === "y2" ? spec.y2Title || name : spec.yTitle || name;
+    return [
+      `${name} X (${plainText(spec.xTitle || "X")})`,
+      `${name} Y (${plainText(yTitle)})`,
+    ];
+  });
+  const rowCount = Math.max(...traces.map((trace) => Math.max(trace.x?.length || 0, trace.y?.length || 0)));
+  const rows = Array.from({ length: rowCount }, (_, rowIndex) =>
+    traces.flatMap((trace) => [
+      csvCellValue(trace.x?.[rowIndex]),
+      csvCellValue(trace.y?.[rowIndex]),
+    ]),
+  );
+  return [headers, ...rows];
+}
+
+function csvCellValue(value) {
+  return value === null || value === undefined ? "" : value;
+}
+
+function plainText(value) {
+  return String(value ?? "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&sub;/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function orderedTracesForExport(traces) {
@@ -4429,6 +4797,7 @@ function plotExportLabel(spec = null) {
   if (method === "rate-time") return "rate_capacity_ce_vs_total_time";
   if (method === "cd") return "cd_voltage_vs_capacity";
   if (method === "cd-time") return "cd_voltage_vs_total_time";
+  if (method === "cap-time") return "cd_capacity_vs_total_time";
   if (method === "cv") return state.plot3d ? "cv_3d_stack" : "cv_current_vs_voltage";
   if (method === "dqdv") return state.plot3d ? "dqdv_3d_stack" : "dqdv_derivative";
   if (method === "eis") return "eis_nyquist";
