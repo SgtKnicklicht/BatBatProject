@@ -4,7 +4,7 @@ const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
 const CALC_STANDARDS_KEY = "batbat.calculatorStandards.v1";
-const APP_VERSION = "1.10.3";
+const APP_VERSION = "1.10.4";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
@@ -1636,9 +1636,10 @@ function compareSquidstatSegments(a, b) {
 function assignSquidstatCycleKeys(segments) {
   const firstExplicitIndex = segments.findIndex((segment) => Number.isFinite(segment.explicitCycle));
   const hasExplicit = firstExplicitIndex >= 0;
-  let preCycle = 0;
+  const firstExplicitCycle = hasExplicit ? segments[firstExplicitIndex].explicitCycle : NaN;
+  let leadingCycle = leadingSquidstatCycleStart(segments.slice(0, Math.max(0, firstExplicitIndex)), firstExplicitCycle) - 1;
   let inferredCycle = 0;
-  let postCycle = Math.max(0, ...segments.map((segment) => segment.explicitCycle).filter(Number.isFinite));
+  let lastCycle = leadingCycle;
   let activeInferred = null;
 
   segments.forEach((segment, index) => {
@@ -1646,13 +1647,15 @@ function assignSquidstatCycleKeys(segments) {
       segment.cycleKey = segment.explicitCycle;
       segment.cycleLabel = `Cycle ${formatCycleValue(segment.explicitCycle)}`;
       activeInferred = null;
+      lastCycle = Math.max(lastCycle, segment.explicitCycle);
       return;
     }
 
     if (hasExplicit && index < firstExplicitIndex) {
       if (!activeInferred || segment.kind === "charge") {
-        preCycle += 1;
-        activeInferred = { key: -preCycle, label: `Pre-cycle ${preCycle}` };
+        leadingCycle += 1;
+        activeInferred = { key: leadingCycle, label: `Cycle ${formatCycleValue(leadingCycle)}` };
+        lastCycle = Math.max(lastCycle, leadingCycle);
       }
       segment.cycleKey = activeInferred.key;
       segment.cycleLabel = activeInferred.label;
@@ -1662,11 +1665,12 @@ function assignSquidstatCycleKeys(segments) {
 
     if (!activeInferred || segment.kind === "charge") {
       if (hasExplicit) {
-        postCycle += 1;
-        activeInferred = { key: postCycle, label: `Inferred cycle ${postCycle}` };
+        lastCycle += 1;
+        activeInferred = { key: lastCycle, label: `Cycle ${formatCycleValue(lastCycle)}` };
       } else {
         inferredCycle += 1;
-        activeInferred = { key: inferredCycle, label: `Cycle ${inferredCycle}` };
+        activeInferred = { key: inferredCycle, label: `Cycle ${formatCycleValue(inferredCycle)}` };
+        lastCycle = Math.max(lastCycle, inferredCycle);
       }
     }
     segment.cycleKey = activeInferred.key;
@@ -3393,13 +3397,23 @@ function isVoltageColumn(column) {
 }
 
 function isRealImpedanceColumn(column) {
+  if (isMagnitudeImpedanceColumn(column)) return false;
   const normalized = normalizeColumnName(column);
-  return normalized.includes("zreal") || normalized.includes("rez") || normalized.includes("realimpedance");
+  return normalized.includes("zreal")
+    || normalized.includes("rez")
+    || normalized.includes("realimpedance")
+    || /z\s*['′’]/i.test(String(column || ""));
 }
 
 function isImaginaryImpedanceColumn(column) {
+  if (isMagnitudeImpedanceColumn(column)) return false;
   const normalized = normalizeColumnName(column);
-  return normalized.includes("zimag") || normalized.includes("imz") || normalized.includes("imaginaryimpedance");
+  return normalized.includes("zimag")
+    || normalized.includes("zimg")
+    || normalized.includes("imz")
+    || normalized.includes("imaginaryimpedance")
+    || /z\s*['′’]{2}/i.test(String(column || ""))
+    || /-?\s*z\s*["″”]/i.test(String(column || ""));
 }
 
 function isNegativeImaginaryColumn(column) {
@@ -3408,11 +3422,40 @@ function isNegativeImaginaryColumn(column) {
 }
 
 function realImpedanceColumn(headers) {
-  return findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)", "Z'"]);
+  return headers.find(isRealImpedanceColumn)
+    || findColumn(headers.filter((header) => !isMagnitudeImpedanceColumn(header)), ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance"]);
 }
 
 function imaginaryImpedanceColumn(headers) {
-  return findColumn(headers, ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance", "Z'' (ohms)", "Z'' (ohm)", "-Z\" (Ohms)", "-Z\""]);
+  return headers.find(isImaginaryImpedanceColumn)
+    || findColumn(headers.filter((header) => !isMagnitudeImpedanceColumn(header)), ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance"]);
+}
+
+function isMagnitudeImpedanceColumn(column) {
+  const text = String(column || "").toLowerCase();
+  return text.includes("|z|") || text.includes("modulus");
+}
+
+function isRealImpedanceColumn(column) {
+  if (isMagnitudeImpedanceColumn(column)) return false;
+  const text = String(column || "");
+  const normalized = normalizeColumnName(column);
+  return normalized.includes("zreal")
+    || normalized.includes("rez")
+    || normalized.includes("realimpedance")
+    || /z\s*'/i.test(text);
+}
+
+function isImaginaryImpedanceColumn(column) {
+  if (isMagnitudeImpedanceColumn(column)) return false;
+  const text = String(column || "");
+  const normalized = normalizeColumnName(column);
+  return normalized.includes("zimag")
+    || normalized.includes("zimg")
+    || normalized.includes("imz")
+    || normalized.includes("imaginaryimpedance")
+    || /z\s*''/i.test(text)
+    || /-?\s*z\s*"/i.test(text);
 }
 
 function capacityToMAh(value, column) {
@@ -3969,6 +4012,28 @@ function addGradientColorbarTrace(traces, labels, title) {
     },
     exportSkip: true,
   });
+}
+
+function leadingSquidstatCycleStart(segments, firstExplicitCycle) {
+  const count = countSquidstatInferredCycles(segments);
+  if (!count) return 1;
+  if (Number.isFinite(firstExplicitCycle) && firstExplicitCycle > count) {
+    return Math.max(1, Math.round(firstExplicitCycle) - count);
+  }
+  return 1;
+}
+
+function countSquidstatInferredCycles(segments) {
+  let count = 0;
+  let active = false;
+  segments.forEach((segment) => {
+    if (!active || segment.kind === "charge") {
+      count += 1;
+      active = true;
+    }
+    if (segment.kind === "discharge") active = false;
+  });
+  return count;
 }
 
 function shouldUseGradientColorbar(count) {
@@ -4978,7 +5043,7 @@ function splitDelimitedLine(line, delimiter) {
     if (char === '"' && quoted && next === '"') {
       current += '"';
       index += 1;
-    } else if (char === '"') {
+    } else if (char === '"' && (quoted || current === "")) {
       quoted = !quoted;
     } else if (char === delimiter && !quoted) {
       cells.push(current);
