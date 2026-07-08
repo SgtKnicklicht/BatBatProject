@@ -4,7 +4,7 @@ const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
 const CALC_STANDARDS_KEY = "batbat.calculatorStandards.v1";
-const APP_VERSION = "1.10.1";
+const APP_VERSION = "1.10.2";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
@@ -105,6 +105,7 @@ const state = {
   plotOverlayFiles: false,
   cycleFilter: "",
   cycleStep: 1,
+  cycleTraceMode: "auto",
   dqdvSmoothing: "sg",
   dqdvWindow: 9,
   dqdvPolynomial: 2,
@@ -168,6 +169,7 @@ const el = {
   cycleControls: document.querySelector("#cycleControls"),
   cycleFilterInput: document.querySelector("#cycleFilterInput"),
   cycleStepInput: document.querySelector("#cycleStepInput"),
+  cycleTraceModeSelect: document.querySelector("#cycleTraceModeSelect"),
   dqdvControls: document.querySelector("#dqdvControls"),
   dqdvSmoothingSelect: document.querySelector("#dqdvSmoothingSelect"),
   dqdvWindowInput: document.querySelector("#dqdvWindowInput"),
@@ -1207,6 +1209,7 @@ function bindPlotStyleControls() {
     state.plotSize = el.plotSizeSelect?.value || "fit";
     state.cycleFilter = el.cycleFilterInput.value.trim();
     state.cycleStep = Math.max(1, Math.round(readNumber(el.cycleStepInput.value) || 1));
+    state.cycleTraceMode = el.cycleTraceModeSelect?.value || "auto";
     state.dqdvSmoothing = el.dqdvSmoothingSelect.value;
     state.dqdvWindow = oddNumberInRange(readNumber(el.dqdvWindowInput.value) || 9, 5, 41);
     state.dqdvPolynomial = Math.max(2, Math.min(3, Math.round(readNumber(el.dqdvPolynomialSelect.value) || 2)));
@@ -1234,6 +1237,7 @@ function bindPlotStyleControls() {
   el.plotSizeSelect?.addEventListener("change", syncStyleInputs);
   el.cycleFilterInput.addEventListener("input", syncStyleInputs);
   el.cycleStepInput.addEventListener("input", syncStyleInputs);
+  el.cycleTraceModeSelect?.addEventListener("change", syncStyleInputs);
   el.dqdvSmoothingSelect.addEventListener("change", syncStyleInputs);
   el.dqdvWindowInput.addEventListener("input", syncStyleInputs);
   el.dqdvPolynomialSelect.addEventListener("change", syncStyleInputs);
@@ -2301,6 +2305,36 @@ function buildCdSpec(table, dataset, preset, method) {
   if (!selectedGroups.length) {
     return { traces: [], message: "No cycles matched the cycle filter." };
   }
+  const traceMode = cdTraceModeForPlot(table, method, selectedGroups.length);
+  if (traceMode === "append") {
+    const style = plotTraceStyle(0, { color: plotMethodColors()[0] });
+    const series = appendedCdSeries(
+      selectedGroups,
+      xColumn,
+      yColumn,
+      method,
+      massMg,
+      method === "cd",
+      method === "cd" || method === "cap-time",
+    );
+    return {
+      traces: [
+        {
+          x: series.x,
+          y: series.y,
+          type: "scatter",
+          mode: state.plotMode,
+          name: selectedGroups.length === 1 ? cycleTraceName(selectedGroups[0][0], selectedGroups[0][1]) : "Appended cycles",
+          line: style.line,
+          marker: style.marker,
+        },
+      ],
+      title: plotTitle(dataset),
+      xTitle: xSeries.title,
+      yTitle: ySeries.title,
+      hint: `Appended ${selectedGroups.length} of ${groups.length} cycle(s) as one trace.${method === "cd-time" || method === "cap-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
+    };
+  }
   const colors = gradientColors(state.plotGradient, selectedGroups.length || 1);
   const traces = selectedGroups.map(([cycle, rows], index) => {
     const style = plotTraceStyle(index, { color: colors[index] });
@@ -2331,6 +2365,35 @@ function buildCdSpec(table, dataset, preset, method) {
     yTitle: ySeries.title,
     hint: `${selectedGroups.length} of ${groups.length} cycle trace(s) shown.${method === "cd-time" || method === "cap-time" ? " Time is shown as total elapsed test time." : ""}${cycleFilterFallback ? " Cycle filter did not match; showing all cycles." : ""}`,
   };
+}
+
+function cdTraceModeForPlot(table, method, groupCount) {
+  const mode = state.cycleTraceMode || "auto";
+  if (mode === "append" || mode === "cycles") return mode;
+  if (isSquidstatCombinedTable(table) && (method === "cd-time" || method === "cap-time") && groupCount > 1) {
+    return "append";
+  }
+  return "cycles";
+}
+
+function appendedCdSeries(groups, xColumn, yColumn, method, massMg, breakOnXReset = false, breakOnKindChange = false) {
+  const x = [];
+  const y = [];
+  groups.forEach(([, rows]) => {
+    const series = pairedSeriesWithBreaks(rows, xColumn, yColumn, method, massMg, breakOnXReset, breakOnKindChange);
+    if (!series.x.length) return;
+    if (x.length && x[x.length - 1] !== null) {
+      x.push(null);
+      y.push(null);
+    }
+    x.push(...series.x);
+    y.push(...series.y);
+  });
+  return { x, y };
+}
+
+function isSquidstatCombinedTable(table) {
+  return Boolean(exactColumn(table.headers || [], [SQUIDSTAT_COMBINED_COLUMNS.cycleKey]));
 }
 
 function cdCycleGroupsForPlot(table, resetColumn = "") {
