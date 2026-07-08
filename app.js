@@ -4,7 +4,7 @@ const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
 const CALC_STANDARDS_KEY = "batbat.calculatorStandards.v1";
-const APP_VERSION = "1.10.1";
+const APP_VERSION = "1.10.3";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
@@ -69,6 +69,12 @@ const SQUIDSTAT_COMBINED_COLUMNS = {
   timeSeconds: "BatBat Time (s)",
   capacity: "BatBat Capacity (mAh)",
   signedCapacity: "BatBat Signed Capacity (mAh)",
+};
+const SQUIDSTAT_EIS_COLUMNS = {
+  spectrumKey: "BatBat EIS Spectrum Key",
+  spectrumLabel: "BatBat EIS Spectrum Label",
+  sourceFile: "BatBat EIS Source File",
+  sequence: "BatBat EIS Sequence",
 };
 
 const state = {
@@ -1393,6 +1399,7 @@ function buildImportedDatasets(datasets) {
   const combined = [];
   const consumed = new Set();
   const groups = squidstatCyclingGroups(datasets);
+  const eisGroups = squidstatEisGroups(datasets);
 
   groups.forEach((group) => {
     if (group.segments.length < 2) return;
@@ -1400,6 +1407,14 @@ function buildImportedDatasets(datasets) {
     if (!dataset) return;
     combined.push(dataset);
     group.segments.forEach((segment) => consumed.add(segment.dataset.id));
+  });
+
+  eisGroups.forEach((group) => {
+    if (group.spectra.length < 2) return;
+    const dataset = buildCombinedSquidstatEisDataset(group);
+    if (!dataset) return;
+    combined.push(dataset);
+    group.spectra.forEach((spectrum) => consumed.add(spectrum.dataset.id));
   });
 
   return [
@@ -1510,6 +1525,105 @@ function buildCombinedSquidstatDataset(group) {
   };
 }
 
+function squidstatEisGroups(datasets) {
+  const groups = new Map();
+  datasets.forEach((dataset) => {
+    const spectrum = squidstatEisSpectrum(dataset);
+    if (!spectrum) return;
+    const key = squidstatExperimentKey(dataset.name);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name: squidstatExperimentName(dataset.name),
+        spectra: [],
+      });
+    }
+    groups.get(key).spectra.push(spectrum);
+  });
+  return [...groups.values()];
+}
+
+function squidstatEisSpectrum(dataset) {
+  if (!dataset || (dataset.kind !== "squidstat" && dataset.type !== "eis")) return null;
+  const table = Object.values(dataset.sheets || {}).find((entry) => entry?.headers?.length && hasEisColumns(entry.headers));
+  if (!table?.headers?.length || !table.rows?.length) return null;
+  const zRealCol = realImpedanceColumn(table.headers);
+  const zImagCol = imaginaryImpedanceColumn(table.headers);
+  if (!zRealCol || !zImagCol) return null;
+  const timeCol = totalTimeColumn(table.headers);
+  return {
+    dataset,
+    table,
+    headers: table.headers,
+    rows: table.rows,
+    zRealCol,
+    zImagCol,
+    timeCol,
+    startSeconds: timeCol ? segmentStartSeconds(table.rows, timeCol) : Number.POSITIVE_INFINITY,
+    fileOrder: squidstatFileOrder(dataset.name),
+    explicitCycle: squidstatExplicitCycle(table.rows, table.headers, dataset.name),
+  };
+}
+
+function buildCombinedSquidstatEisDataset(group) {
+  const spectra = [...group.spectra].sort(compareSquidstatEisSpectra);
+  const sourceHeaders = [];
+  spectra.forEach((spectrum) => {
+    spectrum.headers.forEach((header) => {
+      if (!sourceHeaders.includes(header)) sourceHeaders.push(header);
+    });
+  });
+
+  const helperHeaders = Object.values(SQUIDSTAT_EIS_COLUMNS);
+  const headers = [...helperHeaders, ...sourceHeaders.filter((header) => !helperHeaders.includes(header))];
+  const rows = spectra.flatMap((spectrum, index) => {
+    const label = squidstatEisSpectrumLabel(spectrum, index);
+    return spectrum.rows.map((row) => {
+      const combinedRow = {};
+      headers.forEach((header) => {
+        combinedRow[header] = row[header] ?? "";
+      });
+      combinedRow[SQUIDSTAT_EIS_COLUMNS.spectrumKey] = index + 1;
+      combinedRow[SQUIDSTAT_EIS_COLUMNS.spectrumLabel] = label;
+      combinedRow[SQUIDSTAT_EIS_COLUMNS.sourceFile] = spectrum.dataset.name;
+      combinedRow[SQUIDSTAT_EIS_COLUMNS.sequence] = index + 1;
+      return combinedRow;
+    });
+  });
+
+  if (!rows.length) return null;
+  const sheets = { "combined EIS": { headers, rows, rowCount: rows.length } };
+  return {
+    id: crypto.randomUUID(),
+    name: `${group.name} - Squidstat combined EIS`,
+    kind: "squidstat",
+    type: "eis",
+    methods: ["eis"],
+    activeMassMg: inferActiveMassMgFromSheets(sheets),
+    activeMassSource: "",
+    enabled: true,
+    sheets,
+  };
+}
+
+function compareSquidstatEisSpectra(a, b) {
+  const aTime = Number.isFinite(a.startSeconds) ? a.startSeconds : Number.POSITIVE_INFINITY;
+  const bTime = Number.isFinite(b.startSeconds) ? b.startSeconds : Number.POSITIVE_INFINITY;
+  if (aTime !== bTime) return aTime - bTime;
+  if (a.fileOrder !== b.fileOrder) return a.fileOrder - b.fileOrder;
+  return a.dataset.name.localeCompare(b.dataset.name);
+}
+
+function squidstatEisSpectrumLabel(spectrum, index) {
+  if (Number.isFinite(spectrum.explicitCycle)) {
+    return `Cycle ${formatCycleValue(spectrum.explicitCycle)} EIS`;
+  }
+  if (Number.isFinite(spectrum.fileOrder) && spectrum.fileOrder < Number.POSITIVE_INFINITY) {
+    return `EIS ${index + 1} step ${formatCycleValue(spectrum.fileOrder)}`;
+  }
+  return `EIS ${index + 1}`;
+}
+
 function compareSquidstatSegments(a, b) {
   const aTime = Number.isFinite(a.startSeconds) ? a.startSeconds : Number.POSITIVE_INFINITY;
   const bTime = Number.isFinite(b.startSeconds) ? b.startSeconds : Number.POSITIVE_INFINITY;
@@ -1567,7 +1681,7 @@ function segmentStartSeconds(rows, timeCol) {
 }
 
 function squidstatExplicitCycle(rows, headers, name) {
-  const cycleColumn = findColumn(headers, ["Cycle #", "Cycle Index", "Cycle", "Cycle number"]);
+  const cycleColumn = exactColumn(headers, ["Cycle #", "Cycle Index", "Cycle", "Cycle number"]);
   if (cycleColumn) {
     const values = rows
       .map((row) => readNumber(row[cycleColumn]))
@@ -1747,6 +1861,9 @@ function convertMassToMg(value, context = "") {
 function inferDatasetKind(name, sheets) {
   const allHeaders = Object.values(sheets).flatMap((table) => table.headers || []);
   if (allHeaders.includes("Working Electrode (V)") || allHeaders.includes("Current Density (A/m^2)")) {
+    return "squidstat";
+  }
+  if (hasEisColumns(allHeaders) && findColumn(allHeaders, ["Frequency (Hz)", "Frequency", "Step number", "Step name"])) {
     return "squidstat";
   }
   if (allHeaders.includes("DataPoint") || allHeaders.includes("Cycle Index")) {
@@ -2096,12 +2213,17 @@ function plotLegendLayout(plotSpec, theme, is3d = false) {
 function plotMargins(plotSpec, legend) {
   const rightAxis = plotSpec.y2Title ? 92 : 34;
   const rightLegend = legend.mode === "outside" && legend.show ? 214 : 0;
+  const rightColorbar = plotHasColorbar(plotSpec) ? 118 : 0;
   return {
     t: 62,
-    r: Math.max(rightAxis, rightLegend),
+    r: Math.max(rightAxis, rightLegend, rightColorbar),
     b: 72,
     l: 86,
   };
+}
+
+function plotHasColorbar(plotSpec) {
+  return (plotSpec.traces || []).some((trace) => trace.marker?.showscale);
 }
 
 function renderPlotMessage(message) {
@@ -2171,8 +2293,8 @@ function buildPlotPreset(table, method = state.plotMethod) {
   const charge = capacityColumn(headers);
   const cycle = findColumn(headers, ["Cycle Index", "Cycle", "Cycle number"]);
   const dchg = findColumn(headers, ["DChg. Cap.(Ah)", "Discharge Capacity", "DChg Cap", "Capacity(Ah)"]);
-  const zReal = findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]);
-  const zImag = findColumn(headers, ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance", "Z'' (ohms)", "Z'' (ohm)"]);
+  const zReal = realImpedanceColumn(headers);
+  const zImag = imaginaryImpedanceColumn(headers);
 
   const presets = {
     cv: { xColumn: voltage, yColumns: [current].filter(Boolean), mode: "lines" },
@@ -2323,6 +2445,7 @@ function buildCdSpec(table, dataset, preset, method) {
       marker: style.marker,
     };
   });
+  addGradientColorbarTrace(traces, selectedGroups.map(([cycle, rows]) => cycleTraceName(cycle, rows)), "Cycle");
 
   return {
     traces,
@@ -2661,6 +2784,9 @@ function buildDqdvSpec(table, dataset, preset) {
       }
     }
   });
+  if (!state.plot3d) {
+    addGradientColorbarTrace(traces, groups.map(([cycle, rows]) => cycleTraceName(cycle, rows)), "Cycle");
+  }
 
   const smoothingHint = state.dqdvSmoothing === "sg"
     ? `Q(V) Savitzky-Golay window ${state.dqdvWindow}, polynomial ${state.dqdvPolynomial}`
@@ -2682,27 +2808,63 @@ function buildEisSpec(table, dataset, preset) {
   if (!preset.xColumn || !preset.yColumns.length) {
     return { traces: [], message: "EIS needs real and imaginary impedance columns." };
   }
-  const x = numericSeries(table.rows, preset.xColumn);
   const yColumn = preset.yColumns[0];
-  const y = numericSeries(table.rows, yColumn).map((value) => (isNegativeImaginaryColumn(yColumn) ? value : -value));
-  const style = plotTraceStyle(0);
+  const groups = eisSpectrumGroupsForPlot(table);
+  const colors = gradientColors(state.plotGradient, groups.length || 1);
+  const traces = groups.map((group, index) => {
+    const x = numericSeries(group.rows, preset.xColumn);
+    const y = numericSeries(group.rows, yColumn).map((value) => (isNegativeImaginaryColumn(yColumn) ? value : -value));
+    const style = plotTraceStyle(index, { color: colors[index] });
+    return {
+      x,
+      y,
+      type: "scatter",
+      mode: state.plotMode,
+      name: group.label,
+      line: style.line,
+      marker: style.marker,
+    };
+  });
+  addGradientColorbarTrace(traces, groups.map((group) => group.label), "EIS");
   return {
-    traces: [
-      {
-        x,
-        y,
-        type: "scatter",
-        mode: state.plotMode,
-        name: "-Z<sub>im</sub>",
-        line: style.line,
-        marker: style.marker,
-      },
-    ],
+    traces,
     title: plotTitle(dataset),
     xTitle: "Z<sub>real</sub> [ohm]",
     yTitle: "-Z<sub>im</sub> [ohm]",
-    hint: "Nyquist preset.",
+    hint: groups.length > 1 ? `${groups.length} EIS spectra shown. CSV export writes one X/Y pair per spectrum.` : "Nyquist preset.",
   };
+}
+
+function eisSpectrumGroupsForPlot(table) {
+  const headers = table.headers || [];
+  const keyColumn = exactColumn(headers, [SQUIDSTAT_EIS_COLUMNS.spectrumKey]);
+  if (!keyColumn) {
+    return [{ key: 1, label: "-Z<sub>im</sub>", rows: table.rows || [] }];
+  }
+  const labelColumn = exactColumn(headers, [SQUIDSTAT_EIS_COLUMNS.spectrumLabel]);
+  const sequenceColumn = exactColumn(headers, [SQUIDSTAT_EIS_COLUMNS.sequence]);
+  const groups = new Map();
+  (table.rows || []).forEach((row) => {
+    const key = readNumber(row[keyColumn]);
+    if (!Number.isFinite(key)) return;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: labelColumn ? String(row[labelColumn] || "").trim() : "",
+        sequence: sequenceColumn ? readNumber(row[sequenceColumn]) : key,
+        rows: [],
+      });
+    }
+    const group = groups.get(key);
+    group.rows.push(row);
+    if (!group.label && labelColumn) group.label = String(row[labelColumn] || "").trim();
+  });
+  return [...groups.values()]
+    .sort((a, b) => a.sequence - b.sequence || a.key - b.key)
+    .map((group, index) => ({
+      ...group,
+      label: group.label || `EIS ${index + 1}`,
+    }));
 }
 
 function transformAxisValues(rows, column, axis, method, massMg) {
@@ -3203,7 +3365,7 @@ function hasCycleSummaryColumns(headers) {
 }
 
 function hasEisColumns(headers) {
-  return Boolean(findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)"]));
+  return Boolean(realImpedanceColumn(headers) && imaginaryImpedanceColumn(headers));
 }
 
 function axisTitleFromColumn(column) {
@@ -3243,6 +3405,14 @@ function isImaginaryImpedanceColumn(column) {
 function isNegativeImaginaryColumn(column) {
   const lower = String(column || "").toLowerCase();
   return lower.includes("-im") || lower.includes("-z") || lower.includes("minus");
+}
+
+function realImpedanceColumn(headers) {
+  return findColumn(headers, ["Zreal", "Z Real", "Zre", "Re(Z)", "Real Impedance", "Z' (ohms)", "Z' (ohm)", "Z'"]);
+}
+
+function imaginaryImpedanceColumn(headers) {
+  return findColumn(headers, ["Zimag", "Z Imag", "Zim", "-Im(Z)", "-Zim", "Imaginary Impedance", "Z'' (ohms)", "Z'' (ohm)", "-Z\" (Ohms)", "-Z\""]);
 }
 
 function capacityToMAh(value, column) {
@@ -3762,6 +3932,60 @@ function gradientStops(name) {
     "blue-red": ["#2563eb", "#7e03a8", "#ef4444"],
   };
   return palettes[name] || palettes.plasma;
+}
+
+function addGradientColorbarTrace(traces, labels, title) {
+  const cleanLabels = (labels || []).map((label) => plainText(label || "")).filter(Boolean);
+  if (!shouldUseGradientColorbar(cleanLabels.length)) return;
+  traces.forEach((trace) => {
+    trace.showlegend = false;
+  });
+  const maxIndex = Math.max(1, cleanLabels.length - 1);
+  const tickIndexes = gradientTickIndexes(cleanLabels.length);
+  traces.push({
+    x: [null, null],
+    y: [null, null],
+    type: "scatter",
+    mode: "markers",
+    name: title,
+    showlegend: false,
+    hoverinfo: "skip",
+    marker: {
+      color: [0, maxIndex],
+      cmin: 0,
+      cmax: maxIndex,
+      colorscale: plotlyGradientScale(state.plotGradient),
+      showscale: true,
+      size: 0,
+      opacity: 0,
+      colorbar: {
+        title,
+        tickmode: "array",
+        tickvals: tickIndexes,
+        ticktext: tickIndexes.map((index) => cleanLabels[index] || String(index + 1)),
+        len: 0.72,
+        thickness: 14,
+      },
+    },
+    exportSkip: true,
+  });
+}
+
+function shouldUseGradientColorbar(count) {
+  return state.plotAutoColor && state.plotLegend !== "hidden" && count > 12;
+}
+
+function gradientTickIndexes(count) {
+  if (count <= 1) return [0];
+  const wanted = Math.min(5, count);
+  return Array.from({ length: wanted }, (_, index) => Math.round((index * (count - 1)) / (wanted - 1)))
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+function plotlyGradientScale(name) {
+  const stops = gradientStops(name);
+  if (stops.length === 1) return [[0, stops[0]], [1, stops[0]]];
+  return stops.map((color, index) => [index / (stops.length - 1), color]);
 }
 
 function renderGradientPreview() {
@@ -4353,7 +4577,9 @@ function plainText(value) {
 }
 
 function orderedTracesForExport(traces) {
-  return [...traces].sort((a, b) => traceExportRank(a.name) - traceExportRank(b.name));
+  return [...traces]
+    .filter((trace) => !trace.exportSkip)
+    .sort((a, b) => traceExportRank(a.name) - traceExportRank(b.name));
 }
 
 function traceExportRank(name) {
