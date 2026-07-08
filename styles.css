@@ -84,8 +84,17 @@ button {
 }
 
 .brand strong,
-.brand span {
+.brand span,
+.brand small {
   display: block;
+}
+
+.app-version {
+  margin-top: 4px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
 }
 
 .brand span,

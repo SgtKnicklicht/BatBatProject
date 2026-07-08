@@ -4,6 +4,7 @@ const PROFILE_KEY = "batbat.profile.v1";
 const MEMBER_KEY = "batbat.members.v1";
 const VIEW_KEY = "batbat.activeView.v1";
 const CALC_STANDARDS_KEY = "batbat.calculatorStandards.v1";
+const APP_VERSION = "1.10.1";
 const CHANNEL_COLUMNS = 8;
 const CHANNEL_ROWS = 5;
 const ACTIVE_CHANNELS = CHANNEL_COLUMNS * CHANNEL_ROWS;
@@ -117,6 +118,7 @@ const el = {
   tabs: document.querySelectorAll(".nav-tab"),
   views: document.querySelectorAll(".view"),
   sessionSummary: document.querySelector("#sessionSummary"),
+  appVersion: document.querySelector("#appVersion"),
   channelGrid: document.querySelector("#channelGrid"),
   exportReservationsBtn: document.querySelector("#exportReservationsBtn"),
   exportHistoryBtn: document.querySelector("#exportHistoryBtn"),
@@ -222,6 +224,7 @@ const el = {
 };
 
 function boot() {
+  if (el.appVersion) el.appVersion.textContent = `v${APP_VERSION}`;
   state.reservations = loadReservations();
   state.reservationHistory = loadReservationHistory();
   state.teamMembers = loadTeamMembers();
@@ -1587,14 +1590,24 @@ function squidstatExperimentKey(name) {
 function squidstatExperimentName(name) {
   let base = squidstatBaseName(name);
   const hasCycleToken = /(?:^|[_\s-])cycle\s*\d+(?:[.,]\d+)?(?:[_\s-]|$)/i.test(base);
+  base = stripSquidstatRunTimestamp(base);
   base = base.replace(/^quiettime[_\s-]*/i, "");
   base = base.replace(/^\d+[_\s-]*/, "");
   base = base.replace(/^cycle\s*\d+(?:[.,]\d+)?[_\s-]*/i, "");
   base = base.replace(/[_\s-]cycle\s*\d+(?:[.,]\d+)?(?=[_\s-]|$)/i, "_");
-  if (hasCycleToken) base = base.replace(/_\d+$/i, "");
   base = base.replace(/\s+Plus\d+.*$/i, "");
   base = base.replace(/\s+\(\d{4}-\d{2}-\d{2}.*\)$/i, "");
+  base = stripSquidstatRunTimestamp(base);
+  if (hasCycleToken) base = base.replace(/[_\s-]\d+$/i, "");
   return base.replace(/[_\s-]+$/g, "").trim() || squidstatBaseName(name);
+}
+
+function stripSquidstatRunTimestamp(value) {
+  return String(value || "")
+    .replace(/\s+\(\d{4}-\d{2}-\d{2}[\s_]\d{2}[_:]\d{2}[_:]\d{2}\)$/i, "")
+    .replace(/(?:[_\s-]+)?\d{4}[-_]\d{2}[-_]\d{2}[_\s-]+\d{2}[_:]\d{2}[_:]\d{2}$/i, "")
+    .replace(/(?:[_\s-]+)?\d{8}[_\s-]+\d{6}$/i, "")
+    .replace(/(?:[_\s-]+)?\d{8}$/i, "");
 }
 
 function squidstatBaseName(name) {
