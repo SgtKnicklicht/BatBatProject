@@ -4616,26 +4616,61 @@ function exportSelectedCsv() {
   const spec = buildPlotSpec(table, dataset);
   if (!spec.traces.length) return;
   const traces = orderedTracesForExport(spec.traces);
+  if (!traces.length) return;
   downloadText(`${plotExportBaseName(dataset, spec)}.csv`, toCsv(plotTraceCsvRows(spec, traces)));
 }
 
 function plotTraceCsvRows(spec, traces) {
-  const headers = traces.flatMap((trace) => {
-    const name = plainText(trace.name || "Trace");
-    const yTitle = trace.yaxis === "y2" ? spec.y2Title || name : spec.yTitle || name;
+  if (!traces.length) return [];
+  const groups = groupTracesBySharedX(traces);
+  const headers = groups.flatMap((group, groupIndex) => {
+    const xLabel = groups.length === 1
+      ? plainText(spec.xTitle || "X")
+      : `${plainText(spec.xTitle || "X")} ${groupIndex + 1}`;
     return [
-      `${name} X (${plainText(spec.xTitle || "X")})`,
-      `${name} Y (${plainText(yTitle)})`,
+      xLabel,
+      ...group.traces.map((trace) => {
+        const name = plainText(trace.name || "Trace");
+        const yTitle = trace.yaxis === "y2" ? spec.y2Title || name : spec.yTitle || name;
+        return `${name} (${plainText(yTitle)})`;
+      }),
     ];
   });
-  const rowCount = Math.max(...traces.map((trace) => Math.max(trace.x?.length || 0, trace.y?.length || 0)));
+  const rowCount = Math.max(
+    ...groups.map((group) => Math.max(group.x.length, ...group.traces.map((trace) => trace.y?.length || 0))),
+  );
   const rows = Array.from({ length: rowCount }, (_, rowIndex) =>
-    traces.flatMap((trace) => [
-      csvCellValue(trace.x?.[rowIndex]),
-      csvCellValue(trace.y?.[rowIndex]),
+    groups.flatMap((group) => [
+      csvCellValue(group.x[rowIndex]),
+      ...group.traces.map((trace) => csvCellValue(trace.y?.[rowIndex])),
     ]),
   );
   return [headers, ...rows];
+}
+
+function groupTracesBySharedX(traces) {
+  const groups = [];
+  traces.forEach((trace) => {
+    const x = trace.x || [];
+    const match = groups.find((group) => sameCsvSeries(group.x, x));
+    if (match) {
+      match.traces.push(trace);
+      return;
+    }
+    groups.push({ x, traces: [trace] });
+  });
+  return groups;
+}
+
+function sameCsvSeries(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => csvSeriesValueKey(value) === csvSeriesValueKey(right[index]));
+}
+
+function csvSeriesValueKey(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "number") return Number.isFinite(value) ? value.toPrecision(12) : "";
+  return String(value);
 }
 
 function csvCellValue(value) {
