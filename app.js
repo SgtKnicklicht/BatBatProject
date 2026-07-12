@@ -117,6 +117,7 @@ const state = {
   dqdvBinMv: 0,
   dqdvPostWindow: 0,
   dqdvMinDvMv: 0.05,
+  dqdvIntensity: 0.85,
   dqdvShowRaw: false,
 };
 
@@ -181,6 +182,8 @@ const el = {
   dqdvBinInput: document.querySelector("#dqdvBinInput"),
   dqdvPostWindowInput: document.querySelector("#dqdvPostWindowInput"),
   dqdvMinDvInput: document.querySelector("#dqdvMinDvInput"),
+  dqdvIntensityInput: document.querySelector("#dqdvIntensityInput"),
+  dqdvIntensityValue: document.querySelector("#dqdvIntensityValue"),
   dqdvShowRawInput: document.querySelector("#dqdvShowRawInput"),
   plotCanvas: document.querySelector("#plotCanvas"),
   datasetStats: document.querySelector("#datasetStats"),
@@ -1219,11 +1222,13 @@ function bindPlotStyleControls() {
     state.dqdvBinMv = Math.max(0, readNumber(el.dqdvBinInput.value) || 0);
     state.dqdvPostWindow = oddOrZero(readNumber(el.dqdvPostWindowInput.value) || 0, 0, 21);
     state.dqdvMinDvMv = Math.max(0.0001, readNumber(el.dqdvMinDvInput.value) || 0.05);
+    state.dqdvIntensity = Math.max(0.15, Math.min(1, readNumber(el.dqdvIntensityInput?.value) || 0.85));
     state.dqdvShowRaw = el.dqdvShowRawInput.checked;
     el.plotColorInput.disabled = state.plotAutoColor;
     if (el.dqdvWindowInput.value !== String(state.dqdvWindow)) el.dqdvWindowInput.value = String(state.dqdvWindow);
     if (el.dqdvPostWindowInput.value !== String(state.dqdvPostWindow)) el.dqdvPostWindowInput.value = String(state.dqdvPostWindow);
     document.querySelector("#dqdvWindowValue").textContent = String(state.dqdvWindow);
+    if (el.dqdvIntensityValue) el.dqdvIntensityValue.textContent = `${Math.round(state.dqdvIntensity * 100)}%`;
     el.plotLineWidthValue.textContent = formatNumber(state.plotLineWidth);
     el.plotMarkerSizeValue.textContent = formatNumber(state.plotMarkerSize);
     syncPlotCanvasSize();
@@ -1246,6 +1251,7 @@ function bindPlotStyleControls() {
   el.dqdvBinInput.addEventListener("input", syncStyleInputs);
   el.dqdvPostWindowInput.addEventListener("input", syncStyleInputs);
   el.dqdvMinDvInput.addEventListener("input", syncStyleInputs);
+  el.dqdvIntensityInput?.addEventListener("input", syncStyleInputs);
   el.dqdvShowRawInput.addEventListener("change", syncStyleInputs);
   bindDecimalInput(el.dqdvBinInput);
   bindDecimalInput(el.dqdvMinDvInput);
@@ -2737,6 +2743,8 @@ function buildDqdvSpec(table, dataset, preset) {
   const requestedStep = state.dqdvBinMv / 1000;
   const yTitle = massMg ? "dQ/dV [mAh/g/V]" : "dQ/dV [mAh/V]";
   const colors = gradientColors(state.plotGradient, groups.length || 1);
+  const intensity = state.dqdvIntensity;
+  const rawIntensity = Math.max(0.08, intensity * 0.45);
   const traces = [];
   let processedCount = 0;
   let rawPointCount = 0;
@@ -2759,7 +2767,7 @@ function buildDqdvSpec(table, dataset, preset) {
         name: cycle === null ? "Raw dQ/dV" : `Raw ${traceName}`,
         line: { ...style.line, width: Math.max(1, state.plotLineWidth * 0.55), dash: "dot" },
         marker: style.marker,
-        opacity: 0.38,
+        opacity: rawIntensity,
       });
     }
 
@@ -2774,6 +2782,7 @@ function buildDqdvSpec(table, dataset, preset) {
           mode: "lines",
           name: cycle === null ? `Trace ${groupIndex + 1}` : traceName,
           line: { color: colors[groupIndex], width: Math.max(2, state.plotLineWidth + 1) },
+          opacity: intensity,
         });
       } else {
         traces.push({
@@ -2784,6 +2793,7 @@ function buildDqdvSpec(table, dataset, preset) {
           name: cycle === null ? yTitle : traceName,
           line: style.line,
           marker: style.marker,
+          opacity: intensity,
         });
       }
     }
@@ -2804,7 +2814,7 @@ function buildDqdvSpec(table, dataset, preset) {
     xTitle: "Voltage [V]",
     yTitle: state.plot3d ? "Cycle" : yTitle,
     zTitle: yTitle,
-    hint: `${state.plot3d ? "3D dQ/dV stack. Drag to rotate, scroll to zoom. " : ""}${smoothingHint}; ${stepHint}; ${postHint}; min dV ${formatNumber(state.dqdvMinDvMv)} mV; ${processedCount}/${rawPointCount} derivative points shown.`,
+    hint: `${state.plot3d ? "3D dQ/dV stack. Drag to rotate, scroll to zoom. " : ""}${smoothingHint}; ${stepHint}; ${postHint}; intensity ${Math.round(intensity * 100)}%; min dV ${formatNumber(state.dqdvMinDvMv)} mV; ${processedCount}/${rawPointCount} derivative points shown.`,
   };
 }
 
